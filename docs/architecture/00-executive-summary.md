@@ -89,3 +89,4 @@ Amazones should launch as an agent-first prediction market on Stellar testnet th
 - [04-agent-creation-flow.md](./04-agent-creation-flow.md)
 - [01-v1-roadmap.md](../roadmap/01-v1-roadmap.md)
 - [02-v1-backlog.md](../roadmap/02-v1-backlog.md)
+- [01-sprint-1-findings.md](../security/01-sprint-1-findings.md)
