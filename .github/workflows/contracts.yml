@@ -1,17 +1,22 @@
-name: Contracts
+name: Smart Contracts Amazones
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
-      - feat/**
-      - chore/**
-      - fix/**
+    branches: [ main ]
+    paths:
+      - "contracts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/contracts.yml"
+      - "!contracts/**/*.md"
+
+concurrency:
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   soroban-contracts:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -36,7 +41,8 @@ jobs:
 
       - name: Install Stellar CLI
         run: |
-          cargo install --locked stellar-cli --version 25.2.0
+          brew update
+          brew install stellar-cli
 
       - name: Check formatting
         run: cargo fmt --check
