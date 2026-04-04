@@ -1,6 +1,6 @@
 # Amazones Testnet Deployment
 
-These scripts keep Stellar CLI state repo-local by default through `AMAZONES_STELLAR_CONFIG_DIR=.stellar`.
+These scripts keep Stellar CLI state repo-local by default through `AMAZONES_STELLAR_CONFIG_DIR=deployments/testnet/.config/stellar`.
 
 ## Prerequisites
 
@@ -29,9 +29,9 @@ These scripts keep Stellar CLI state repo-local by default through `AMAZONES_STE
 
 - `market_core` is per-market, so it is deployed separately after a market id exists.
 - `scripts/testnet-smoke.sh` assumes `stellar contract invoke` accepts the struct payload for `create_market` as a JSON string under `--request`.
-- Once contracts are deployed, use `stellar contract invoke --id <contract-id> --source-account <identity> -- --help` to verify the generated argument shape for each function in your local CLI version.
+- Once contracts are deployed, use `stellar contract invoke --id <contract-id> --source <identity> -- --help` to verify the generated argument shape for each function in your local CLI version.
 
 ## Latest Verified Deployment
 
-- Core deployment and smoke-test evidence: [2026-04-02-core-deployment.md](/Users/sebastiansalazar/Documents/Acachete-Labs/Amazones/deployments/testnet/2026-04-02-core-deployment.md)
-- Market core validation and fix verification: [2026-04-02-market-core-validation.md](/Users/sebastiansalazar/Documents/Acachete-Labs/Amazones/deployments/testnet/2026-04-02-market-core-validation.md)
+- Core deployment and smoke-test evidence: [2026-04-02-core-deployment.md](./2026-04-02-core-deployment.md)
+- Market core validation and fix verification: [2026-04-02-market-core-validation.md](./2026-04-02-market-core-validation.md)

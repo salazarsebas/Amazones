@@ -2,7 +2,7 @@
 
 Date: `2026-04-02`
 Network: `Stellar testnet`
-Config mode: repo-local `.stellar`
+Config mode: repo-local `deployments/testnet/.config/stellar`
 Deployer identity: `amazones-deployer`
 Admin identity: `amazones-deployer`
 
@@ -75,7 +75,6 @@ Admin identity: `amazones-deployer`
 
 ## Operational Notes
 
-- The contracts were deployed successfully with repo-local Stellar CLI config under `.stellar`.
-- The current Stellar CLI warns that local config is deprecated and recommends migration to `~/.config/stellar`.
-- This did not block deployment or invocation, but it should be handled in a future tooling cleanup pass.
+- The contracts were deployed successfully with repo-local Stellar CLI config under `deployments/testnet/.config/stellar`.
+- The deployment scripts have since been updated to keep using a repo-local config path while matching the current CLI's `.config/stellar` layout and `--source` flag style.
 - `market_core` has not been deployed yet in this batch because it is instantiated per market and needs a concrete collateral asset decision for the next validation pass.

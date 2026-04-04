@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/.stellar}"
+CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/deployments/testnet/.config/stellar}"
 NETWORK_NAME="${AMAZONES_STELLAR_NETWORK:-testnet}"
 DEPLOYER_IDENTITY="${AMAZONES_DEPLOYER_IDENTITY:-amazones-deployer}"
 ADMIN_IDENTITY="${AMAZONES_ADMIN_IDENTITY:-$DEPLOYER_IDENTITY}"
@@ -24,7 +24,7 @@ MARKET_FACTORY_ID="$(
   stellar contract deploy \
     --config-dir "$CONFIG_DIR" \
     --network "$NETWORK_NAME" \
-    --source-account "$DEPLOYER_IDENTITY" \
+    --source "$DEPLOYER_IDENTITY" \
     --alias "${ALIAS_PREFIX}-market-factory" \
     --wasm "$ARTIFACT_DIR/market_factory.wasm" \
     -- \
@@ -36,7 +36,7 @@ RESOLUTION_ID="$(
   stellar contract deploy \
     --config-dir "$CONFIG_DIR" \
     --network "$NETWORK_NAME" \
-    --source-account "$DEPLOYER_IDENTITY" \
+    --source "$DEPLOYER_IDENTITY" \
     --alias "${ALIAS_PREFIX}-resolution" \
     --wasm "$ARTIFACT_DIR/resolution.wasm" \
     -- \
@@ -49,7 +49,7 @@ AGENT_REGISTRY_ID="$(
   stellar contract deploy \
     --config-dir "$CONFIG_DIR" \
     --network "$NETWORK_NAME" \
-    --source-account "$DEPLOYER_IDENTITY" \
+    --source "$DEPLOYER_IDENTITY" \
     --alias "${ALIAS_PREFIX}-agent-registry" \
     --wasm "$ARTIFACT_DIR/agent_registry.wasm" \
     -- \

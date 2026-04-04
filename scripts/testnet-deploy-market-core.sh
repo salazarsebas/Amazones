@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/.stellar}"
+CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/deployments/testnet/.config/stellar}"
 NETWORK_NAME="${AMAZONES_STELLAR_NETWORK:-testnet}"
 DEPLOYER_IDENTITY="${AMAZONES_DEPLOYER_IDENTITY:-amazones-deployer}"
 ADMIN_IDENTITY="${AMAZONES_ADMIN_IDENTITY:-$DEPLOYER_IDENTITY}"
@@ -28,7 +28,7 @@ MARKET_CORE_ALIAS="${AMAZONES_MARKET_CORE_ALIAS:-${ALIAS_PREFIX}-market-core-${A
 stellar contract deploy \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
-  --source-account "$DEPLOYER_IDENTITY" \
+  --source "$DEPLOYER_IDENTITY" \
   --alias "$MARKET_CORE_ALIAS" \
   --wasm "$ARTIFACT_DIR/market_core.wasm" \
   -- \

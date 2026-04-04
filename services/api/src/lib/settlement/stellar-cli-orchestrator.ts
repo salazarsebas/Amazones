@@ -54,7 +54,7 @@ export class StellarCliSettlementOrchestrator implements SettlementOrchestrator 
       contractId,
       "--network",
       this.config.STELLAR_NETWORK,
-      "--source-account",
+      "--source",
       this.config.STELLAR_SOURCE_ACCOUNT,
     ];
 

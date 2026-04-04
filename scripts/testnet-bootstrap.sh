@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/.stellar}"
+CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/deployments/testnet/.config/stellar}"
 NETWORK_NAME="${AMAZONES_STELLAR_NETWORK:-testnet}"
 RPC_URL="${AMAZONES_RPC_URL:-https://soroban-testnet.stellar.org}"
 NETWORK_PASSPHRASE="${AMAZONES_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}"

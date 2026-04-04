@@ -115,12 +115,12 @@ Optional CLI-backed mode:
 
 - `SETTLEMENT_MODE=stellar-cli`
 - `STELLAR_CLI_BIN=stellar`
-- `STELLAR_CONFIG_DIR=/path/to/.stellar`
+- `STELLAR_CONFIG_DIR=deployments/testnet/.config/stellar`
 - `STELLAR_NETWORK=testnet`
 - `STELLAR_SOURCE_ACCOUNT=amazones-deployer`
 - `MARKET_CORE_CONTRACT_IDS_JSON={"market-0001":"<contract-id>"}`
 
-In `stellar-cli` mode the backend invokes `settle_trade` through the local Stellar CLI for matched fills.
+In `stellar-cli` mode the backend invokes `settle_trade` through the local Stellar CLI for matched fills. The adapter uses the current `stellar` syntax with `--source`, not the older `--source-account` form.
 
 ## Install
 

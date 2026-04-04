@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/.stellar}"
+CONFIG_DIR="${AMAZONES_STELLAR_CONFIG_DIR:-$ROOT_DIR/deployments/testnet/.config/stellar}"
 NETWORK_NAME="${AMAZONES_STELLAR_NETWORK:-testnet}"
 DEPLOYMENTS_ENV="${AMAZONES_DEPLOYMENTS_ENV:-$ROOT_DIR/deployments/testnet/contracts.env}"
 CREATOR_IDENTITY="${AMAZONES_CREATOR_IDENTITY:-amazones-creator}"
@@ -48,7 +48,7 @@ stellar contract invoke \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
   --id "$AMAZONES_MARKET_FACTORY_ID" \
-  --source-account "$CREATOR_IDENTITY" \
+  --source "$CREATOR_IDENTITY" \
   -- \
   create_market \
   --request "$MARKET_REQUEST"
@@ -58,7 +58,7 @@ stellar contract invoke \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
   --id "$AMAZONES_AGENT_REGISTRY_ID" \
-  --source-account "$AGENT_OWNER_IDENTITY" \
+  --source "$AGENT_OWNER_IDENTITY" \
   -- \
   register_agent \
   --owner "$AGENT_OWNER_ADDRESS" \
@@ -71,7 +71,7 @@ stellar contract invoke \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
   --id "$AMAZONES_RESOLUTION_ID" \
-  --source-account "$CREATOR_IDENTITY" \
+  --source "$CREATOR_IDENTITY" \
   -- \
   propose_resolution \
   --resolver "$CREATOR_ADDRESS" \
@@ -83,8 +83,8 @@ stellar contract invoke \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
   --id "$AMAZONES_AGENT_REGISTRY_ID" \
-  --source-account "$AGENT_OWNER_IDENTITY" \
-  --send no \
+  --source "$AGENT_OWNER_IDENTITY" \
+  --send=no \
   -- \
   get_agent \
   --agent-wallet "$AGENT_WALLET_ADDRESS"
@@ -94,7 +94,7 @@ stellar contract invoke \
   --config-dir "$CONFIG_DIR" \
   --network "$NETWORK_NAME" \
   --id "$AMAZONES_RESOLUTION_ID" \
-  --source-account "$CREATOR_IDENTITY" \
-  --send no \
+  --source "$CREATOR_IDENTITY" \
+  --send=no \
   -- \
   get_state
