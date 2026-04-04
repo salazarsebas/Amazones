@@ -1,3 +1,9 @@
 /target
 Cargo.lock
 contracts/**/test_snapshots/
+.stellar/
+artifacts/
+deployments/testnet/*.env
+deployments/testnet/*.log
+deployments/testnet/*.txt
+deployments/testnet/*.local
