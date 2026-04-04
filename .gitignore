@@ -7,3 +7,4 @@ deployments/testnet/*.env
 deployments/testnet/*.log
 deployments/testnet/*.txt
 deployments/testnet/*.local
+services/api/node_modules/
