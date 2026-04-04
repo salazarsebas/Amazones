@@ -250,6 +250,15 @@ impl MarketCore {
             &(available + payout),
         );
         env.storage()
+            .persistent()
+            .set(&DataKey::LockedCollateral(user.clone()), &0i128);
+        env.storage()
+            .persistent()
+            .set(&DataKey::YesShares(user.clone()), &0i128);
+        env.storage()
+            .persistent()
+            .set(&DataKey::NoShares(user.clone()), &0i128);
+        env.storage()
             .instance()
             .set(&DataKey::PoolBalance, &(pool - payout));
         env.storage()
@@ -355,5 +364,44 @@ mod tests {
         assert!(seller_position.locked_collateral > 0);
 
         let _ = admin;
+    }
+
+    #[test]
+    fn redeem_clears_shares_and_locked_collateral() {
+        let (env, client, _admin, buyer, seller) = setup();
+        env.mock_all_auths();
+
+        client.deposit_collateral(&buyer, &1_000i128);
+        client.deposit_collateral(&seller, &1_000i128);
+
+        let request = SettleTradeRequest {
+            settlement_id: BytesN::from_array(&env, &[2; 32]),
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            side: Symbol::new(&env, "yes"),
+            price_bps: 6_000u32,
+            shares: 1_000i128,
+            fee_bps: 100u32,
+        };
+        client.settle_trade(&request);
+        client.set_final_outcome(&Outcome::Yes);
+
+        let buyer_payout = client.redeem(&buyer);
+        assert_eq!(buyer_payout, 1_000i128);
+
+        let buyer_position = client.get_position(&buyer);
+        assert_eq!(buyer_position.available_collateral, 1_394i128);
+        assert_eq!(buyer_position.locked_collateral, 0i128);
+        assert_eq!(buyer_position.yes_shares, 0i128);
+        assert_eq!(buyer_position.no_shares, 0i128);
+
+        let seller_payout = client.redeem(&seller);
+        assert_eq!(seller_payout, 0i128);
+
+        let seller_position = client.get_position(&seller);
+        assert_eq!(seller_position.available_collateral, 600i128);
+        assert_eq!(seller_position.locked_collateral, 0i128);
+        assert_eq!(seller_position.yes_shares, 0i128);
+        assert_eq!(seller_position.no_shares, 0i128);
     }
 }
