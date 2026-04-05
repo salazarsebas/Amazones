@@ -19,3 +19,7 @@ services/api/node_modules/
 services/api/.env
 services/api/.env.local
 services/api/coverage/
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.env
+apps/web/.env.local
