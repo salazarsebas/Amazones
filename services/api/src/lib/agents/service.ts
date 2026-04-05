@@ -324,12 +324,51 @@ export class InMemoryAgentService {
     provider_reference_status: "configured" | "missing";
   } {
     const agent = this.requireOwnedAgent(agentId, ownerWallet);
+    return this.buildAnalytics(agent);
+  }
+
+  premiumAnalytics(agentId: string): {
+    agent_id: string;
+    name: string;
+    agent_type: AgentType;
+    status: AgentRecord["status"];
+    permissions: AgentPermissions;
+    risk_limits: AgentRiskLimits;
+    provider_reference_status: "configured" | "missing";
+    strategy_summary: {
+      categories: string[];
+      regions: string[];
+      aggressiveness: AgentStrategyConfig["aggressiveness"];
+    };
+  } {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      throw new AppError("agent_not_found", "Agent not found", 404);
+    }
+
+    return {
+      ...this.buildAnalytics(agent),
+      name: agent.name,
+      agent_type: agent.agentType,
+      strategy_summary: {
+        categories: agent.strategy.categories,
+        regions: agent.strategy.regions,
+        aggressiveness: agent.strategy.aggressiveness,
+      },
+    };
+  }
+
+  private buildAnalytics(agent: AgentRecord) {
+    const providerReferenceStatus: "configured" | "missing" = agent.encryptedProviderReference
+      ? "configured"
+      : "missing";
+
     return {
       agent_id: agent.id,
       status: agent.status,
       permissions: agent.permissions,
       risk_limits: agent.riskLimits,
-      provider_reference_status: agent.encryptedProviderReference ? "configured" : "missing",
+      provider_reference_status: providerReferenceStatus,
     };
   }
 

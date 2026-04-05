@@ -3,13 +3,26 @@ export interface ResolutionPolicySnapshot {
   challengePeriodHours: number;
 }
 
+export interface MarketSemanticMetadata {
+  canonicalQuestion: string;
+  tags: string[];
+  locale: string;
+  marketType: "binary";
+  region: string;
+  category: string;
+}
+
 export interface MarketSnapshot {
   id: string;
   title: string;
+  description?: string;
+  category?: string;
   status: "open" | "resolving" | "resolved";
   resolveTime: string;
+  collateralAsset?: string;
   resolutionPolicy: ResolutionPolicySnapshot;
   latestOutcome?: "yes" | "no" | "invalid";
+  semanticMetadata?: MarketSemanticMetadata;
 }
 
 export class InMemoryMarketCatalog {
@@ -17,7 +30,20 @@ export class InMemoryMarketCatalog {
 
   seed(markets: MarketSnapshot[]): void {
     for (const market of markets) {
-      this.markets.set(market.id, market);
+      this.markets.set(market.id, {
+        ...market,
+        description: market.description ?? "",
+        category: market.category ?? "general",
+        collateralAsset: market.collateralAsset ?? "USDC",
+        semanticMetadata: market.semanticMetadata ?? {
+          canonicalQuestion: market.title,
+          tags: [market.id, market.category ?? "general"],
+          locale: "en",
+          marketType: "binary",
+          region: "global",
+          category: market.category ?? "general",
+        },
+      });
     }
   }
 

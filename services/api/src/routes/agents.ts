@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 
+import type { AppConfig } from "../config";
 import type { AuthenticatedVariables } from "../lib/auth/middleware";
+import { verifyAccessToken } from "../lib/auth/jwt";
 import { AppError, errorPayload } from "../lib/errors";
 import type { InMemoryAgentService } from "../lib/agents/service";
+import type { DevelopmentX402Service } from "../lib/x402/service";
 
 const permissionsSchema = z.object({
   trade: z.boolean().optional(),
@@ -51,37 +54,76 @@ const updateAgentSchema = z.object({
   risk_limits: riskLimitsSchema.optional(),
 });
 
-export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
+export function buildAgentsRouter(
+  agentService: InMemoryAgentService,
+  config: AppConfig,
+  x402Service: DevelopmentX402Service,
+): Hono<{
   Variables: AuthenticatedVariables;
 }> {
   const router = new Hono<{
     Variables: AuthenticatedVariables;
   }>();
 
-  router.get("/", (c) =>
-    c.json({
-      items: agentService.listByOwner(c.get("walletAddress") as string),
-    }),
-  );
+  async function authenticateOwner(
+    authorization: string | undefined,
+  ): Promise<{ wallet_address: string; tier: string }> {
+    if (!authorization?.startsWith("Bearer ")) {
+      throw new AppError("missing_token", "Bearer token is required", 401);
+    }
+    return verifyAccessToken(authorization.slice("Bearer ".length), config);
+  }
 
-  router.get("/:agentId", (c) => {
-    const agent = agentService.get(c.req.param("agentId"));
-    if (!agent) {
-      return c.json(
-        errorPayload(new AppError("agent_not_found", "Agent not found", 404)),
-        404,
-      );
+  router.get("/", async (c) => {
+    try {
+      const claims = await authenticateOwner(c.req.header("authorization"));
+      return c.json({
+        items: agentService.listByOwner(claims.wallet_address),
+      });
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
     }
-    if (agent.owner_wallet !== (c.get("walletAddress") as string)) {
-      return c.json(
-        errorPayload(new AppError("agent_forbidden", "Authenticated wallet does not own this agent", 403)),
-        403,
-      );
+  });
+
+  router.get("/:agentId", async (c) => {
+    try {
+      const claims = await authenticateOwner(c.req.header("authorization"));
+      const agent = agentService.get(c.req.param("agentId"));
+      if (!agent) {
+        return c.json(
+          errorPayload(new AppError("agent_not_found", "Agent not found", 404)),
+          404,
+        );
+      }
+      if (agent.owner_wallet !== claims.wallet_address) {
+        return c.json(
+          errorPayload(new AppError("agent_forbidden", "Authenticated wallet does not own this agent", 403)),
+          403,
+        );
+      }
+      return c.json(agent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401 | 403 | 404);
+      }
+      throw error;
     }
-    return c.json(agent);
   });
 
   router.post("/", async (c) => {
+    let claims;
+    try {
+      claims = await authenticateOwner(c.req.header("authorization"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
+    }
+
     const body = createAgentSchema.safeParse(await c.req.json());
     if (!body.success) {
       return c.json(
@@ -96,7 +138,7 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
 
     try {
       const agent = agentService.create({
-        ownerWallet: c.get("walletAddress") as string,
+        ownerWallet: claims.wallet_address,
         agentWallet: body.data.agent_wallet,
         name: body.data.name,
         description: body.data.description,
@@ -118,6 +160,16 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
   });
 
   router.patch("/:agentId", async (c) => {
+    let claims;
+    try {
+      claims = await authenticateOwner(c.req.header("authorization"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
+    }
+
     const body = updateAgentSchema.safeParse(await c.req.json());
     if (!body.success) {
       return c.json(
@@ -131,9 +183,7 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
     }
 
     try {
-      return c.json(
-        agentService.update(c.req.param("agentId"), c.get("walletAddress") as string, body.data),
-      );
+      return c.json(agentService.update(c.req.param("agentId"), claims.wallet_address, body.data));
     } catch (error) {
       if (error instanceof AppError) {
         return c.json(errorPayload(error), error.status as 400 | 403 | 404 | 409);
@@ -142,9 +192,19 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
     }
   });
 
-  router.post("/:agentId/pause", (c) => {
+  router.post("/:agentId/pause", async (c) => {
+    let claims;
     try {
-      return c.json(agentService.pause(c.req.param("agentId"), c.get("walletAddress") as string));
+      claims = await authenticateOwner(c.req.header("authorization"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
+    }
+
+    try {
+      return c.json(agentService.pause(c.req.param("agentId"), claims.wallet_address));
     } catch (error) {
       if (error instanceof AppError) {
         return c.json(errorPayload(error), error.status as 403 | 404 | 409);
@@ -153,9 +213,19 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
     }
   });
 
-  router.post("/:agentId/activate", (c) => {
+  router.post("/:agentId/activate", async (c) => {
+    let claims;
     try {
-      return c.json(agentService.activate(c.req.param("agentId"), c.get("walletAddress") as string));
+      claims = await authenticateOwner(c.req.header("authorization"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
+    }
+
+    try {
+      return c.json(agentService.activate(c.req.param("agentId"), claims.wallet_address));
     } catch (error) {
       if (error instanceof AppError) {
         return c.json(errorPayload(error), error.status as 400 | 403 | 404 | 409);
@@ -164,12 +234,33 @@ export function buildAgentsRouter(agentService: InMemoryAgentService): Hono<{
     }
   });
 
-  router.get("/:agentId/analytics", (c) => {
+  router.get("/:agentId/analytics", async (c) => {
+    const authorization = c.req.header("authorization");
+
+    if (authorization?.startsWith("Bearer ")) {
+      try {
+        const claims = await authenticateOwner(authorization);
+        return c.json(agentService.analytics(c.req.param("agentId"), claims.wallet_address));
+      } catch (error) {
+        if (error instanceof AppError) {
+          return c.json(errorPayload(error), error.status as 401 | 403 | 404);
+        }
+        throw error;
+      }
+    }
+
     try {
-      return c.json(agentService.analytics(c.req.param("agentId"), c.get("walletAddress") as string));
+      x402Service.verifyPaymentHeader(c.req.header("x-payment"), {
+        productId: "agent_analytics",
+        resource: c.req.path,
+        method: "GET",
+        amountUsdc: "0.08",
+        description: "Premium agent analytics for external subscribers and automation",
+      });
+      return c.json(agentService.premiumAnalytics(c.req.param("agentId")));
     } catch (error) {
       if (error instanceof AppError) {
-        return c.json(errorPayload(error), error.status as 403 | 404);
+        return c.json(errorPayload(error), error.status as 402 | 404);
       }
       throw error;
     }

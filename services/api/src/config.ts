@@ -20,6 +20,18 @@ const envSchema = z.object({
   STELLAR_NETWORK: z.string().default("testnet"),
   STELLAR_SOURCE_ACCOUNT: z.string().optional(),
   MARKET_CORE_CONTRACT_IDS_JSON: z.string().default("{}"),
+  X402_MODE: z.enum(["disabled", "development"]).default("development"),
+  X402_NETWORK: z.string().default("stellar-testnet"),
+  X402_ASSET: z.string().default("USDC"),
+  X402_PAY_TO: z.string().default("amazones-premium-seller"),
+  X402_FACILITATOR_URL: z
+    .url()
+    .default("https://facilitator.testnet.amazones.local/x402"),
+  X402_CHALLENGE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  X402_HMAC_SECRET: z
+    .string()
+    .min(32, "X402_HMAC_SECRET must be at least 32 characters")
+    .default("amazones-x402-development-secret-change-me"),
   AGENT_PROVIDER_ENCRYPTION_KEY: z
     .string()
     .min(32, "AGENT_PROVIDER_ENCRYPTION_KEY must be at least 32 characters")

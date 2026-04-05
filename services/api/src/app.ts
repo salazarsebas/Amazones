@@ -15,10 +15,12 @@ import { InMemoryResolutionService } from "./lib/resolution/service";
 import { ResolutionWorker } from "./lib/resolution/worker";
 import { ImmediateSettlementOrchestrator } from "./lib/settlement/immediate-orchestrator";
 import { StellarCliSettlementOrchestrator } from "./lib/settlement/stellar-cli-orchestrator";
+import { DevelopmentX402Service } from "./lib/x402/service";
 import { buildAuditRouter } from "./routes/audit";
 import { registerHealthRoutes } from "./routes/health";
 import { buildAuthRouter } from "./routes/auth";
 import { buildAgentsRouter } from "./routes/agents";
+import { buildDataRouter } from "./routes/data";
 import { buildMarketsRouter } from "./routes/markets";
 import { buildOrdersRouter } from "./routes/orders";
 import { buildPortfolioRouter } from "./routes/portfolio";
@@ -33,6 +35,7 @@ export function buildApp(options?: { seedMarkets?: string[] }) {
   const challengeStore = new InMemoryChallengeStore();
   const walletAuth = new WalletAuthService(config, challengeStore);
   const marketCatalog = new InMemoryMarketCatalog();
+  const x402Service = new DevelopmentX402Service(config);
   const settlementOrchestrator =
     config.SETTLEMENT_MODE === "stellar-cli"
       ? new StellarCliSettlementOrchestrator(config)
@@ -67,10 +70,9 @@ export function buildApp(options?: { seedMarkets?: string[] }) {
   registerHealthRoutes(app);
 
   app.route("/v1/auth", buildAuthRouter(walletAuth));
-  app.route("/v1/markets", buildMarketsRouter(marketCatalog, orderService));
-  app.use("/v1/agents", requireBearerAuth(config));
-  app.use("/v1/agents/*", requireBearerAuth(config));
-  app.route("/v1/agents", buildAgentsRouter(agentService));
+  app.route("/v1/markets", buildMarketsRouter(marketCatalog, orderService, x402Service));
+  app.route("/v1/data", buildDataRouter(marketCatalog, x402Service));
+  app.route("/v1/agents", buildAgentsRouter(agentService, config, x402Service));
   app.use("/v1/orders/*", requireBearerAuth(config));
   app.route("/v1/orders", buildOrdersRouter(orderService));
   app.use("/v1/portfolio/*", requireBearerAuth(config));
