@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Keypair, StrKey } from "stellar-sdk";
 
 import { AppError } from "../errors";
+import type { InMemoryAgentService } from "../agents/service";
 import type { InMemoryAuditLogService } from "../audit/service";
 import type { InMemoryMarketCatalog } from "../markets/service";
 import type { RealtimeEventBus } from "../realtime/event-bus";
@@ -50,6 +51,7 @@ export class InMemoryOrderService {
     private readonly settlementOrchestrator: SettlementOrchestrator,
     private readonly auditLog: InMemoryAuditLogService,
     private readonly eventBus: RealtimeEventBus,
+    private readonly agentService?: InMemoryAgentService,
   ) {}
 
   seedMarket(marketId: string): void {
@@ -101,6 +103,17 @@ export class InMemoryOrderService {
     if (!verified) {
       throw new AppError("invalid_signature", "Order signature verification failed", 401);
     }
+
+    const agent = this.agentService?.assertTradeAllowed(
+      input.walletAddress,
+      input.marketId,
+      input.price * input.shares,
+      {
+        openPositions: this.getPortfolio(input.walletAddress).positions.length,
+        totalNotionalTodayUsdc: this.totalNotionalToday(input.walletAddress),
+        marketNotionalTodayUsdc: this.marketNotionalToday(input.walletAddress, input.marketId),
+      },
+    ) ?? null;
 
     const orderHash = createHash("sha256").update(payload).digest("hex");
     for (const order of this.orders.values()) {
@@ -154,6 +167,13 @@ export class InMemoryOrderService {
       },
       emittedAt: new Date().toISOString(),
     });
+    if (agent) {
+      this.agentService?.recordExecution(agent, "agent.trade_submitted", {
+        order_id: stored.id,
+        market_id: stored.marketId,
+        status: stored.status,
+      });
+    }
     return { order: this.orders.get(stored.id) ?? stored, fills };
   }
 
@@ -350,6 +370,26 @@ export class InMemoryOrderService {
         payload: fill,
         emittedAt: new Date().toISOString(),
       });
+      const buyerAgent = this.agentService?.getByWallet(fill.buyerWallet);
+      const sellerAgent = this.agentService?.getByWallet(fill.sellerWallet);
+      if (buyerAgent) {
+        this.agentService?.recordExecution(buyerAgent, "agent.fill_settled", {
+          fill_id: fill.id,
+          role: "buyer",
+          market_id: fill.marketId,
+          shares: fill.shares,
+          price: fill.price,
+        });
+      }
+      if (sellerAgent) {
+        this.agentService?.recordExecution(sellerAgent, "agent.fill_settled", {
+          fill_id: fill.id,
+          role: "seller",
+          market_id: fill.marketId,
+          shares: fill.shares,
+          price: fill.price,
+        });
+      }
     }
 
     if (incoming.remainingShares === incoming.originalShares) {
@@ -358,6 +398,29 @@ export class InMemoryOrderService {
     }
 
     return fills;
+  }
+
+  private totalNotionalToday(walletAddress: string): number {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.fills
+      .filter(
+        (fill) =>
+          fill.createdAt.startsWith(today) &&
+          (fill.buyerWallet === walletAddress || fill.sellerWallet === walletAddress),
+      )
+      .reduce((sum, fill) => sum + fill.price * fill.shares, 0);
+  }
+
+  private marketNotionalToday(walletAddress: string, marketId: string): number {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.fills
+      .filter(
+        (fill) =>
+          fill.createdAt.startsWith(today) &&
+          fill.marketId === marketId &&
+          (fill.buyerWallet === walletAddress || fill.sellerWallet === walletAddress),
+      )
+      .reduce((sum, fill) => sum + fill.price * fill.shares, 0);
   }
 }
 

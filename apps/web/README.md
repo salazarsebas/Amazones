@@ -9,6 +9,7 @@ Sprint 3 frontend foundation for human trading UX.
 - homepage with product framing and featured markets
 - market inventory page
 - market detail page with visible probabilities and resolution policy
+- agent workspace with draft creation wizard and detail view
 - API-backed market loading with safe fallback data when the backend is offline
 
 ## Environment

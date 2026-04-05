@@ -175,7 +175,24 @@ button {
   color: var(--text-strong);
 }
 
+.text-area,
+.select-field {
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: white;
+  color: var(--text-strong);
+}
+
 .field input:focus {
+  outline: 2px solid rgba(14, 116, 144, 0.18);
+  border-color: var(--sky-solid);
+}
+
+.text-area:focus,
+.select-field:focus {
   outline: 2px solid rgba(14, 116, 144, 0.18);
   border-color: var(--sky-solid);
 }
@@ -378,6 +395,21 @@ button {
 .status-resolved {
   background: var(--sky-soft);
   color: var(--sky-solid);
+}
+
+.status-active {
+  background: var(--yes-soft);
+  color: var(--yes-solid);
+}
+
+.status-paused {
+  background: var(--gold-soft);
+  color: var(--gold-solid);
+}
+
+.status-archived {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
 }
 
 .status-closed,
@@ -589,6 +621,11 @@ button {
   background: rgba(221, 243, 234, 0.65);
 }
 
+.success-panel.neutral {
+  border-color: var(--border-subtle);
+  background: rgba(241, 239, 232, 0.72);
+}
+
 .source-list {
   padding-left: 18px;
   margin: 0;
@@ -613,12 +650,73 @@ button {
   gap: var(--space-6);
 }
 
+.wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: var(--space-6);
+}
+
+.wizard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.wizard-progress {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.wizard-step {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: white;
+  color: var(--text-secondary);
+}
+
+.wizard-step.active {
+  border-color: var(--sky-solid);
+  background: var(--sky-soft);
+  color: var(--sky-solid);
+}
+
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.checkbox-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.mono-data {
+  font-family: var(--font-mono), monospace;
+  word-break: break-all;
+}
+
 @media (max-width: 960px) {
   .hero-grid,
   .detail-grid,
   .detail-grid.secondary,
   .market-grid,
-  .portfolio-grid {
+  .portfolio-grid,
+  .wizard-layout,
+  .checkbox-grid {
     grid-template-columns: 1fr;
   }
 
