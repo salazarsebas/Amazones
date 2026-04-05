@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { AppError } from "../errors";
+import type { InMemoryAgentService } from "../agents/service";
 import type { InMemoryMarketCatalog } from "../markets/service";
 
 export interface ResolutionProposal {
@@ -20,7 +21,10 @@ export interface ResolutionProposal {
 export class InMemoryResolutionService {
   private readonly proposals = new Map<string, ResolutionProposal>();
 
-  constructor(private readonly markets: InMemoryMarketCatalog) {}
+  constructor(
+    private readonly markets: InMemoryMarketCatalog,
+    private readonly agentService?: InMemoryAgentService,
+  ) {}
 
   propose(input: {
     marketId: string;
@@ -30,6 +34,7 @@ export class InMemoryResolutionService {
     bondAmountUsdc: string;
     proposerWallet: string;
   }): ResolutionProposal {
+    const agent = this.agentService?.assertResolutionAllowed(input.proposerWallet) ?? null;
     const market = this.markets.get(input.marketId);
     if (!market) {
       throw new AppError("unknown_market", "Market does not exist", 404);
@@ -54,6 +59,13 @@ export class InMemoryResolutionService {
 
     this.proposals.set(proposal.id, proposal);
     this.markets.markResolving(input.marketId);
+    if (agent) {
+      this.agentService?.recordExecution(agent, "agent.resolution_proposed", {
+        proposal_id: proposal.id,
+        market_id: proposal.marketId,
+        proposed_outcome: proposal.proposedOutcome,
+      });
+    }
     return proposal;
   }
 

@@ -4,6 +4,80 @@ import { Keypair } from "stellar-sdk";
 import { buildApp } from "../src/app";
 import { canonicalOrderPayload } from "../src/lib/orders/order-service";
 
+async function authenticate(app: ReturnType<typeof buildApp>["app"], keypair: Keypair, agentName?: string) {
+  const challengeResponse = await app.request("/v1/auth/challenge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      wallet_address: keypair.publicKey(),
+      ...(agentName ? { agent_name: agentName } : {}),
+    }),
+  });
+  const challengePayload = await challengeResponse.json();
+  const signature = Buffer.from(
+    keypair.sign(Buffer.from(challengePayload.challenge_text, "utf8")),
+  ).toString("base64");
+  const verifyResponse = await app.request("/v1/auth/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      challenge_id: challengePayload.challenge_id,
+      wallet_address: keypair.publicKey(),
+      signature,
+    }),
+  });
+  const verifyPayload = await verifyResponse.json();
+  return verifyPayload.access_token as string;
+}
+
+async function submitSignedOrder(
+  app: ReturnType<typeof buildApp>["app"],
+  keypair: Keypair,
+  accessToken: string,
+  order: {
+    market_id: string;
+    side: "yes" | "no";
+    action: "buy" | "sell";
+    price: number;
+    shares: number;
+    expires_at: string;
+    nonce: string;
+    client_order_id: string;
+  },
+) {
+  const signature = Buffer.from(
+    keypair.sign(
+      Buffer.from(
+        canonicalOrderPayload({
+          marketId: order.market_id,
+          walletAddress: keypair.publicKey(),
+          side: order.side,
+          action: order.action,
+          price: order.price,
+          shares: order.shares,
+          expiresAt: order.expires_at,
+          nonce: order.nonce,
+          clientOrderId: order.client_order_id,
+          signature: "",
+        }),
+        "utf8",
+      ),
+    ),
+  ).toString("base64");
+
+  return app.request("/v1/orders", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      ...order,
+      signature,
+    }),
+  });
+}
+
 describe("wallet auth", () => {
   it("issues a challenge and verifies a valid signature", async () => {
     const keypair = Keypair.random();
@@ -158,81 +232,11 @@ describe("wallet auth", () => {
     const seller = Keypair.random();
     const { app } = buildApp({ seedMarkets: ["market-0001"] });
 
-    async function authenticate(keypair: Keypair) {
-      const challengeResponse = await app.request("/v1/auth/challenge", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet_address: keypair.publicKey() }),
-      });
-      const challengePayload = await challengeResponse.json();
-      const signature = Buffer.from(
-        keypair.sign(Buffer.from(challengePayload.challenge_text, "utf8")),
-      ).toString("base64");
-      const verifyResponse = await app.request("/v1/auth/verify", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          challenge_id: challengePayload.challenge_id,
-          wallet_address: keypair.publicKey(),
-          signature,
-        }),
-      });
-      const verifyPayload = await verifyResponse.json();
-      return verifyPayload.access_token as string;
-    }
-
-    async function submitOrder(
-      keypair: Keypair,
-      accessToken: string,
-      order: {
-        market_id: string;
-        side: "yes" | "no";
-        action: "buy" | "sell";
-        price: number;
-        shares: number;
-        expires_at: string;
-        nonce: string;
-        client_order_id: string;
-      },
-    ) {
-      const signature = Buffer.from(
-        keypair.sign(
-          Buffer.from(
-            canonicalOrderPayload({
-              marketId: order.market_id,
-              walletAddress: keypair.publicKey(),
-              side: order.side,
-              action: order.action,
-              price: order.price,
-              shares: order.shares,
-              expiresAt: order.expires_at,
-              nonce: order.nonce,
-              clientOrderId: order.client_order_id,
-              signature: "",
-            }),
-            "utf8",
-          ),
-        ),
-      ).toString("base64");
-
-      return app.request("/v1/orders", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          ...order,
-          signature,
-        }),
-      });
-    }
-
-    const buyerToken = await authenticate(buyer);
-    const sellerToken = await authenticate(seller);
+    const buyerToken = await authenticate(app, buyer);
+    const sellerToken = await authenticate(app, seller);
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
-    const restingSell = await submitOrder(seller, sellerToken, {
+    const restingSell = await submitSignedOrder(app, seller, sellerToken, {
       market_id: "market-0001",
       side: "yes",
       action: "sell",
@@ -244,7 +248,7 @@ describe("wallet auth", () => {
     });
     expect(restingSell.status).toBe(202);
 
-    const crossingBuy = await submitOrder(buyer, buyerToken, {
+    const crossingBuy = await submitSignedOrder(app, buyer, buyerToken, {
       market_id: "market-0001",
       side: "yes",
       action: "buy",
@@ -341,5 +345,178 @@ describe("wallet auth", () => {
     const auditPayload = await auditResponse.json();
     expect(auditPayload.items).toHaveLength(1);
     expect(auditPayload.items[0].eventType).toBe("resolution.finalized");
+  });
+
+  it("creates and activates an agent with encrypted provider configuration", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const owner = Keypair.random();
+    const agentWallet = Keypair.random();
+    const { app } = buildApp();
+    const ownerToken = await authenticate(app, owner);
+
+    const createResponse = await app.request("/v1/agents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`,
+      },
+      body: JSON.stringify({
+        agent_wallet: agentWallet.publicKey(),
+        name: "LatAm momentum",
+        description: "Trades football and crypto markets with capped exposure.",
+        agent_type: "trader",
+        provider_kind: "claude",
+        provider_reference: "sk-ant-123",
+        permissions: {
+          trade: true,
+          buyPremiumData: true,
+        },
+        risk_limits: {
+          dailyBudgetUsdc: 75,
+          perMarketBudgetUsdc: 25,
+          maxOpenPositions: 3,
+        },
+      }),
+    });
+
+    expect(createResponse.status).toBe(201);
+    const createdAgent = await createResponse.json();
+    expect(createdAgent.status).toBe("draft");
+    expect(createdAgent.provider_reference_status).toBe("configured");
+
+    const activateResponse = await app.request(`/v1/agents/${createdAgent.id}/activate`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+      },
+    });
+
+    expect(activateResponse.status).toBe(200);
+    const activatedAgent = await activateResponse.json();
+    expect(activatedAgent.status).toBe("active");
+
+    const analyticsResponse = await app.request(`/v1/agents/${createdAgent.id}/analytics`, {
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+      },
+    });
+
+    expect(analyticsResponse.status).toBe(200);
+    const analytics = await analyticsResponse.json();
+    expect(analytics.provider_reference_status).toBe("configured");
+    expect(analytics.permissions.trade).toBe(true);
+  });
+
+  it("blocks paused agents from submitting trades", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const owner = Keypair.random();
+    const agentWallet = Keypair.random();
+    const { app } = buildApp({ seedMarkets: ["market-0003"] });
+    const ownerToken = await authenticate(app, owner);
+
+    const createResponse = await app.request("/v1/agents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`,
+      },
+      body: JSON.stringify({
+        agent_wallet: agentWallet.publicKey(),
+        name: "Paused agent",
+        description: "Should be stopped before submitting orders.",
+        agent_type: "trader",
+        provider_kind: "openai",
+        provider_reference: "sk-openai-123",
+        status: "active",
+        permissions: {
+          trade: true,
+        },
+        risk_limits: {
+          dailyBudgetUsdc: 50,
+          perMarketBudgetUsdc: 20,
+          maxOpenPositions: 2,
+        },
+      }),
+    });
+    const createdAgent = await createResponse.json();
+
+    const pauseResponse = await app.request(`/v1/agents/${createdAgent.id}/pause`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+      },
+    });
+    expect(pauseResponse.status).toBe(200);
+
+    const agentToken = await authenticate(app, agentWallet, "paused-agent");
+    const orderResponse = await submitSignedOrder(app, agentWallet, agentToken, {
+      market_id: "market-0003",
+      side: "yes",
+      action: "buy",
+      price: 0.55,
+      shares: 5,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      nonce: "paused-agent-1",
+      client_order_id: "paused-agent-client-1",
+    });
+
+    expect(orderResponse.status).toBe(409);
+    const payload = await orderResponse.json();
+    expect(payload.error.code).toBe("agent_inactive");
+  });
+
+  it("blocks agents without resolution permission from proposing market outcomes", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const owner = Keypair.random();
+    const agentWallet = Keypair.random();
+    const { app } = buildApp({ seedMarkets: ["market-0004"] });
+    const ownerToken = await authenticate(app, owner);
+
+    const createResponse = await app.request("/v1/agents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`,
+      },
+      body: JSON.stringify({
+        agent_wallet: agentWallet.publicKey(),
+        name: "Trade only agent",
+        description: "May trade but cannot resolve.",
+        agent_type: "trader",
+        provider_kind: "groq",
+        provider_reference: "groq-key-123",
+        status: "active",
+        permissions: {
+          trade: true,
+          proposeResolutions: false,
+        },
+        risk_limits: {
+          dailyBudgetUsdc: 50,
+          perMarketBudgetUsdc: 20,
+          maxOpenPositions: 2,
+        },
+      }),
+    });
+
+    expect(createResponse.status).toBe(201);
+    const agentToken = await authenticate(app, agentWallet, "trade-only-agent");
+
+    const proposeResponse = await app.request("/v1/resolutions/propose", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${agentToken}`,
+      },
+      body: JSON.stringify({
+        market_id: "market-0004",
+        proposed_outcome: "yes",
+        evidence_urls: ["https://example.com/evidence"],
+        bond_amount_usdc: "25",
+      }),
+    });
+
+    expect(proposeResponse.status).toBe(403);
+    const payload = await proposeResponse.json();
+    expect(payload.error.code).toBe("agent_resolution_forbidden");
   });
 });

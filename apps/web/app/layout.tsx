@@ -43,7 +43,7 @@ export default function RootLayout({
                 <nav className="top-nav" aria-label="Primary">
                   <Link href="/markets">Markets</Link>
                   <Link href="/portfolio">Portfolio</Link>
-                  <span>Agents</span>
+                  <Link href="/agents">Agents</Link>
                 </nav>
 
                 <WalletConnectionPanel />

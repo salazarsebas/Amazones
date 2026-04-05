@@ -3,6 +3,7 @@ import { logger } from "hono/logger";
 
 import { loadConfig } from "./config";
 import { InMemoryAuditLogService } from "./lib/audit/service";
+import { InMemoryAgentService } from "./lib/agents/service";
 import { attachTraceId } from "./lib/audit/middleware";
 import { InMemoryChallengeStore } from "./lib/auth/challenge-store";
 import { requireBearerAuth } from "./lib/auth/middleware";
@@ -17,6 +18,7 @@ import { StellarCliSettlementOrchestrator } from "./lib/settlement/stellar-cli-o
 import { buildAuditRouter } from "./routes/audit";
 import { registerHealthRoutes } from "./routes/health";
 import { buildAuthRouter } from "./routes/auth";
+import { buildAgentsRouter } from "./routes/agents";
 import { buildMarketsRouter } from "./routes/markets";
 import { buildOrdersRouter } from "./routes/orders";
 import { buildPortfolioRouter } from "./routes/portfolio";
@@ -27,6 +29,7 @@ export function buildApp(options?: { seedMarkets?: string[] }) {
   const app = new Hono();
   const auditLog = new InMemoryAuditLogService();
   const eventBus = new RealtimeEventBus();
+  const agentService = new InMemoryAgentService(config, auditLog, eventBus);
   const challengeStore = new InMemoryChallengeStore();
   const walletAuth = new WalletAuthService(config, challengeStore);
   const marketCatalog = new InMemoryMarketCatalog();
@@ -39,8 +42,9 @@ export function buildApp(options?: { seedMarkets?: string[] }) {
     settlementOrchestrator,
     auditLog,
     eventBus,
+    agentService,
   );
-  const resolutionService = new InMemoryResolutionService(marketCatalog);
+  const resolutionService = new InMemoryResolutionService(marketCatalog, agentService);
   const resolutionWorker = new ResolutionWorker(resolutionService, auditLog, eventBus);
 
   for (const marketId of options?.seedMarkets ?? []) {
@@ -64,6 +68,9 @@ export function buildApp(options?: { seedMarkets?: string[] }) {
 
   app.route("/v1/auth", buildAuthRouter(walletAuth));
   app.route("/v1/markets", buildMarketsRouter(marketCatalog, orderService));
+  app.use("/v1/agents", requireBearerAuth(config));
+  app.use("/v1/agents/*", requireBearerAuth(config));
+  app.route("/v1/agents", buildAgentsRouter(agentService));
   app.use("/v1/orders/*", requireBearerAuth(config));
   app.route("/v1/orders", buildOrdersRouter(orderService));
   app.use("/v1/portfolio/*", requireBearerAuth(config));

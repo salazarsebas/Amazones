@@ -1,6 +1,6 @@
 # Amazones API Service
 
-Sprint 2 backend foundation for Amazones.
+Sprint 2 and Sprint 4 backend foundation for Amazones.
 
 ## Current scope
 
@@ -12,6 +12,13 @@ Sprint 2 backend foundation for Amazones.
 - `GET /v1/markets`
 - `GET /v1/markets/:marketId`
 - `GET /v1/portfolio`
+- `GET /v1/agents`
+- `GET /v1/agents/:agentId`
+- `POST /v1/agents`
+- `PATCH /v1/agents/:agentId`
+- `POST /v1/agents/:agentId/pause`
+- `POST /v1/agents/:agentId/activate`
+- `GET /v1/agents/:agentId/analytics`
 - `POST /v1/resolutions/propose`
 - `POST /v1/resolutions/challenge`
 - `GET /v1/audit`
@@ -24,6 +31,8 @@ Sprint 2 backend foundation for Amazones.
 - in-memory resolution service and worker loop
 - audit trail capture for accepted orders and settled fills
 - initial Postgres migration for markets, agents, orders, fills, audit logs, and auth challenges
+- in-memory agent lifecycle service with encrypted provider reference handling
+- agent execution enforcement for trade budgets, status, and resolution permissions
 
 ## Auth model in this foundation
 
@@ -77,6 +86,12 @@ Current matching behavior:
 - partial fills are supported
 - fills are marked `settled` immediately with a synthetic transaction hash placeholder until Soroban settlement orchestration replaces it
 
+When the authenticated wallet belongs to a registered agent:
+
+- the agent must be `active`
+- `trade` permission must be enabled for order submission
+- daily budget, per-market budget, and max-open-positions limits are enforced before accepting the order
+
 ## Realtime gateway
 
 The API process also starts a websocket gateway on `WS_PORT`.
@@ -97,6 +112,11 @@ Current emitted channels:
 
 `POST /v1/resolutions/propose` moves a market into `resolving`.
 The worker finalizes proposals whose challenge deadline has passed.
+
+When the authenticated wallet belongs to a registered agent:
+
+- the agent must be `active`
+- `proposeResolutions` permission must be enabled
 
 Worker env:
 
@@ -121,6 +141,24 @@ Optional CLI-backed mode:
 - `MARKET_CORE_CONTRACT_IDS_JSON={"market-0001":"<contract-id>"}`
 
 In `stellar-cli` mode the backend invokes `settle_trade` through the local Stellar CLI for matched fills. The adapter uses the current `stellar` syntax with `--source`, not the older `--source-account` form.
+
+## Agent lifecycle model
+
+Agent endpoints are owner-authenticated through the same wallet bearer token flow.
+
+Current states:
+
+- `draft`
+- `active`
+- `paused`
+- `archived`
+
+Current lifecycle guarantees:
+
+- provider references are encrypted before storage
+- only the owner wallet can update, pause, or activate an agent
+- activation validates provider configuration, permissions, and risk limits
+- agent activity emits realtime events on `agent:{agentId}:activity`
 
 ## Install
 

@@ -20,6 +20,10 @@ const envSchema = z.object({
   STELLAR_NETWORK: z.string().default("testnet"),
   STELLAR_SOURCE_ACCOUNT: z.string().optional(),
   MARKET_CORE_CONTRACT_IDS_JSON: z.string().default("{}"),
+  AGENT_PROVIDER_ENCRYPTION_KEY: z
+    .string()
+    .min(32, "AGENT_PROVIDER_ENCRYPTION_KEY must be at least 32 characters")
+    .default("amazones-agent-provider-key-change-me-now"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
