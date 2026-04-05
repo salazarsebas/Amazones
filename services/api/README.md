@@ -1,6 +1,6 @@
 # Amazones API Service
 
-Sprint 2 and Sprint 4 backend foundation for Amazones.
+Sprint 2, Sprint 4, and Sprint 5 backend foundation for Amazones.
 
 ## Current scope
 
@@ -9,6 +9,7 @@ Sprint 2 and Sprint 4 backend foundation for Amazones.
 - `POST /v1/auth/verify`
 - `POST /v1/orders`
 - `GET /v1/markets/:marketId/depth`
+- `GET /v1/markets/:marketId/semantic`
 - `GET /v1/markets`
 - `GET /v1/markets/:marketId`
 - `GET /v1/portfolio`
@@ -19,6 +20,7 @@ Sprint 2 and Sprint 4 backend foundation for Amazones.
 - `POST /v1/agents/:agentId/pause`
 - `POST /v1/agents/:agentId/activate`
 - `GET /v1/agents/:agentId/analytics`
+- `GET /v1/data/latam-election-pack`
 - `POST /v1/resolutions/propose`
 - `POST /v1/resolutions/challenge`
 - `GET /v1/audit`
@@ -33,6 +35,8 @@ Sprint 2 and Sprint 4 backend foundation for Amazones.
 - initial Postgres migration for markets, agents, orders, fills, audit logs, and auth challenges
 - in-memory agent lifecycle service with encrypted provider reference handling
 - agent execution enforcement for trade budgets, status, and resolution permissions
+- development-grade x402 premium gate for paid data endpoints
+- semantic market metadata and premium dataset endpoints for external agents
 
 ## Auth model in this foundation
 
@@ -159,6 +163,44 @@ Current lifecycle guarantees:
 - only the owner wallet can update, pause, or activate an agent
 - activation validates provider configuration, permissions, and risk limits
 - agent activity emits realtime events on `agent:{agentId}:activity`
+
+## Premium data and x402 layer
+
+Sprint 5 adds the first premium API surface:
+
+- `GET /v1/markets/:marketId/depth`
+- `GET /v1/markets/:marketId/semantic`
+- `GET /v1/agents/:agentId/analytics`
+- `GET /v1/data/latam-election-pack`
+
+Current behavior:
+
+- premium endpoints return `402` when `X-PAYMENT` is missing
+- the `402` payload includes `payment_required` metadata and a signed `payment_token`
+- the client can resend that token in the `X-PAYMENT` header to access the resource
+
+Current verification mode:
+
+- `X402_MODE=development`
+
+This is a development-grade x402 gate, not a production facilitator-backed transfer verifier. It preserves the HTTP `402` contract, endpoint pricing, and premium routing behavior while keeping the payment verifier replaceable.
+
+Current premium prices:
+
+- market depth: `0.05 USDC`
+- market semantic metadata: `0.03 USDC`
+- agent analytics: `0.08 USDC`
+- LATAM election pack: `0.25 USDC`
+
+Current x402 env:
+
+- `X402_MODE=development`
+- `X402_NETWORK=stellar-testnet`
+- `X402_ASSET=USDC`
+- `X402_PAY_TO=amazones-premium-seller`
+- `X402_FACILITATOR_URL=https://facilitator.testnet.amazones.local/x402`
+- `X402_CHALLENGE_TTL_SECONDS=300`
+- `X402_HMAC_SECRET=<32+ chars>`
 
 ## Install
 

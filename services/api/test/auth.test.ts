@@ -4,6 +4,16 @@ import { Keypair } from "stellar-sdk";
 import { buildApp } from "../src/app";
 import { canonicalOrderPayload } from "../src/lib/orders/order-service";
 
+async function getPremiumPaymentToken(
+  app: ReturnType<typeof buildApp>["app"],
+  path: string,
+): Promise<string> {
+  const response = await app.request(path);
+  expect(response.status).toBe(402);
+  const payload = await response.json();
+  return payload.error.details.payment_required.payment_token as string;
+}
+
 async function authenticate(app: ReturnType<typeof buildApp>["app"], keypair: Keypair, agentName?: string) {
   const challengeResponse = await app.request("/v1/auth/challenge", {
     method: "POST",
@@ -265,7 +275,12 @@ describe("wallet auth", () => {
     expect(buyPayload.fills[0].price).toBe(0.59);
     expect(buyPayload.fills[0].shares).toBe(7);
 
-    const depthResponse = await app.request("/v1/markets/market-0001/depth");
+    const depthToken = await getPremiumPaymentToken(app, "/v1/markets/market-0001/depth");
+    const depthResponse = await app.request("/v1/markets/market-0001/depth", {
+      headers: {
+        "x-payment": depthToken,
+      },
+    });
     expect(depthResponse.status).toBe(200);
     const depthPayload = await depthResponse.json();
     expect(depthPayload.asks).toHaveLength(1);
@@ -405,6 +420,94 @@ describe("wallet auth", () => {
     const analytics = await analyticsResponse.json();
     expect(analytics.provider_reference_status).toBe("configured");
     expect(analytics.permissions.trade).toBe(true);
+  });
+
+  it("requires x402 payment for premium market metadata and returns semantic payload after payment", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const { app } = buildApp({ seedMarkets: ["market-0100"] });
+
+    const unpaid = await app.request("/v1/markets/market-0100/semantic");
+    expect(unpaid.status).toBe(402);
+    const unpaidPayload = await unpaid.json();
+    expect(unpaidPayload.error.code).toBe("x402_payment_required");
+    expect(unpaidPayload.error.details.payment_required.scheme).toBe("x402-stellar");
+
+    const paid = await app.request("/v1/markets/market-0100/semantic", {
+      headers: {
+        "x-payment": unpaidPayload.error.details.payment_required.payment_token,
+      },
+    });
+    expect(paid.status).toBe(200);
+    const semanticPayload = await paid.json();
+    expect(semanticPayload.market_id).toBe("market-0100");
+    expect(semanticPayload.semantic_metadata.marketType).toBe("binary");
+  });
+
+  it("serves premium agent analytics with x402 while preserving owner-auth analytics", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const owner = Keypair.random();
+    const agentWallet = Keypair.random();
+    const { app } = buildApp();
+    const ownerToken = await authenticate(app, owner);
+
+    const createResponse = await app.request("/v1/agents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ownerToken}`,
+      },
+      body: JSON.stringify({
+        agent_wallet: agentWallet.publicKey(),
+        name: "Premium analytics bot",
+        description: "Exposes premium analytics externally.",
+        agent_type: "hybrid",
+        provider_kind: "claude",
+        provider_reference: "sk-ant-premium",
+        status: "active",
+        permissions: {
+          trade: true,
+          buyPremiumData: true,
+        },
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const createdAgent = await createResponse.json();
+
+    const ownerAnalytics = await app.request(`/v1/agents/${createdAgent.id}/analytics`, {
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+      },
+    });
+    expect(ownerAnalytics.status).toBe(200);
+
+    const premiumToken = await getPremiumPaymentToken(app, `/v1/agents/${createdAgent.id}/analytics`);
+    const premiumAnalytics = await app.request(`/v1/agents/${createdAgent.id}/analytics`, {
+      headers: {
+        "x-payment": premiumToken,
+      },
+    });
+    expect(premiumAnalytics.status).toBe(200);
+    const premiumPayload = await premiumAnalytics.json();
+    expect(premiumPayload.agent_id).toBe(createdAgent.id);
+    expect(premiumPayload.name).toBe("Premium analytics bot");
+    expect(premiumPayload.strategy_summary.aggressiveness).toBe("balanced");
+  });
+
+  it("serves the LATAM election premium dataset through x402", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const { app } = buildApp({ seedMarkets: ["market-0200"] });
+
+    const token = await getPremiumPaymentToken(app, "/v1/data/latam-election-pack");
+    const response = await app.request("/v1/data/latam-election-pack", {
+      headers: {
+        "x-payment": token,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.dataset_id).toBe("latam-election-pack");
+    expect(payload.items).toHaveLength(1);
   });
 
   it("blocks paused agents from submitting trades", async () => {
