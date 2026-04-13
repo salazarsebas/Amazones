@@ -25,6 +25,17 @@ These scripts keep Stellar CLI state repo-local by default through `AMAZONES_STE
 5. Export `AMAZONES_COLLATERAL_ASSET` to a valid Stellar asset contract or SAC address before smoke testing.
 6. `./scripts/testnet-smoke.sh`
 
+## Using `USDA` alongside `USDC`
+
+If you want a repo-owned stable test asset in addition to `USDC`, generate `USDA` first:
+
+1. `cd services/api`
+2. `bun run testnet:seed-asset`
+3. `source ../deployments/testnet/usda.env`
+4. export `AMAZONES_COLLATERAL_ASSET="$AMAZONES_USDA_SAC"` when you want market smoke tests to use `USDA`
+
+The generated env file also contains the issuer/distributor secrets needed by the API to auto-seed newly created testnet wallets with `USDA`.
+
 ## Notes
 
 - `market_core` is per-market, so it is deployed separately after a market id exists.

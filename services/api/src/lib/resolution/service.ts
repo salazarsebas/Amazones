@@ -20,11 +20,16 @@ export interface ResolutionProposal {
 
 export class InMemoryResolutionService {
   private readonly proposals = new Map<string, ResolutionProposal>();
+  private persistState?: () => void;
 
   constructor(
     private readonly markets: InMemoryMarketCatalog,
     private readonly agentService?: InMemoryAgentService,
   ) {}
+
+  setPersistenceHandler(handler: () => void): void {
+    this.persistState = handler;
+  }
 
   propose(input: {
     marketId: string;
@@ -59,6 +64,7 @@ export class InMemoryResolutionService {
 
     this.proposals.set(proposal.id, proposal);
     this.markets.markResolving(input.marketId);
+    this.persistState?.();
     if (agent) {
       this.agentService?.recordExecution(agent, "agent.resolution_proposed", {
         proposal_id: proposal.id,
@@ -77,6 +83,7 @@ export class InMemoryResolutionService {
     proposal.status = "challenged";
     proposal.challengedAt = new Date().toISOString();
     this.proposals.set(proposal.id, proposal);
+    this.persistState?.();
     return proposal;
   }
 
@@ -97,10 +104,21 @@ export class InMemoryResolutionService {
       finalized.push(proposal);
     }
 
+    if (finalized.length > 0) {
+      this.persistState?.();
+    }
+
     return finalized;
   }
 
   list(): ResolutionProposal[] {
     return [...this.proposals.values()];
+  }
+
+  load(proposals: ResolutionProposal[]): void {
+    this.proposals.clear();
+    for (const proposal of proposals) {
+      this.proposals.set(proposal.id, proposal);
+    }
   }
 }

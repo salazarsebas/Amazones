@@ -1,9 +1,10 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { StrKey } from "stellar-sdk";
+import { Keypair, StrKey } from "stellar-sdk";
 
 import type { AppConfig } from "../../config";
 import { AppError } from "../errors";
+import type { TestnetSeededAssetResult } from "../stellar/assets";
 import type { InMemoryAuditLogService } from "../audit/service";
 import type { RealtimeEventBus } from "../realtime/event-bus";
 import type {
@@ -57,14 +58,26 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+export interface AgentValidationIssue {
+  field: string;
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+}
+
 export class InMemoryAgentService {
   private readonly agents = new Map<string, AgentRecord>();
+  private persistState?: () => void;
 
   constructor(
     private readonly config: AppConfig,
     private readonly auditLog: InMemoryAuditLogService,
     private readonly eventBus: RealtimeEventBus,
   ) {}
+
+  setPersistenceHandler(handler: () => void): void {
+    this.persistState = handler;
+  }
 
   listByOwner(ownerWallet: string): AgentSummary[] {
     return [...this.agents.values()]
@@ -85,6 +98,136 @@ export class InMemoryAgentService {
       }
     }
     return null;
+  }
+
+  load(agents: AgentRecord[]): void {
+    this.agents.clear();
+    for (const agent of agents) {
+      this.agents.set(agent.id, agent);
+    }
+  }
+
+  counts(): { agents: number } {
+    return {
+      agents: this.agents.size,
+    };
+  }
+
+  snapshot(): AgentRecord[] {
+    return [...this.agents.values()];
+  }
+
+  validateDraft(input: {
+    providerKind: ProviderKind;
+    providerReference?: string;
+    strategy?: Partial<AgentStrategyConfig>;
+    permissions?: Partial<AgentPermissions>;
+    riskLimits?: Partial<AgentRiskLimits>;
+  }): AgentValidationIssue[] {
+    const issues: AgentValidationIssue[] = [];
+    const permissions = normalizePermissions(input.permissions);
+    const riskLimits = normalizeRiskLimits(input.riskLimits);
+    const strategy = normalizeStrategy(input.strategy);
+    const providerReference = input.providerReference?.trim() ?? "";
+
+    const providerPatterns: Record<ProviderKind, RegExp> = {
+      claude: /^(sk-ant-|anthropic-)/,
+      openai: /^sk-/,
+      groq: /^gsk_/,
+      "openai-compatible": /^.{12,}$/,
+    };
+
+    if (!providerReference) {
+      issues.push({
+        field: "provider_reference",
+        code: "missing_provider_reference",
+        message: "Provider reference is required before activation.",
+        severity: "error",
+      });
+    } else if (!providerPatterns[input.providerKind].test(providerReference)) {
+      issues.push({
+        field: "provider_reference",
+        code: "provider_reference_format_unrecognized",
+        message: `Provider reference does not match the expected format for ${input.providerKind}.`,
+        severity: input.providerKind === "openai-compatible" ? "warning" : "error",
+      });
+    }
+
+    if (!Object.values(permissions).some(Boolean)) {
+      issues.push({
+        field: "permissions",
+        code: "missing_permissions",
+        message: "At least one permission must be enabled before activation.",
+        severity: "error",
+      });
+    }
+
+    if (permissions.trade) {
+      if (riskLimits.dailyBudgetUsdc <= 0) {
+        issues.push({
+          field: "risk_limits.dailyBudgetUsdc",
+          code: "invalid_daily_budget",
+          message: "Daily budget must be positive when trade permission is enabled.",
+          severity: "error",
+        });
+      }
+      if (riskLimits.perMarketBudgetUsdc <= 0) {
+        issues.push({
+          field: "risk_limits.perMarketBudgetUsdc",
+          code: "invalid_per_market_budget",
+          message: "Per-market budget must be positive when trade permission is enabled.",
+          severity: "error",
+        });
+      }
+      if (riskLimits.maxOpenPositions <= 0) {
+        issues.push({
+          field: "risk_limits.maxOpenPositions",
+          code: "invalid_max_positions",
+          message: "Max open positions must be positive when trade permission is enabled.",
+          severity: "error",
+        });
+      }
+    }
+
+    if (!strategy.model?.trim()) {
+      issues.push({
+        field: "strategy.model",
+        code: "missing_model",
+        message: "Specify the model name that will drive this agent.",
+        severity: "warning",
+      });
+    }
+
+    return issues;
+  }
+
+  async createSponsoredWallet(ownerWallet: string, funder: (address: string) => Promise<{
+    status: "funded" | "pending_manual_funding";
+    detail?: string;
+  }>, seedAsset?: (secretSeed: string) => Promise<TestnetSeededAssetResult | null>): Promise<{
+    owner_wallet: string;
+    public_key: string;
+    secret_seed: string;
+    funding_status: "funded" | "pending_manual_funding";
+    funding_detail?: string;
+    seeded_assets: TestnetSeededAssetResult[];
+  }> {
+    assertWalletAddress(ownerWallet, "owner_wallet");
+
+    const keypair = Keypair.random();
+    const funding = await funder(keypair.publicKey());
+    const seededAsset =
+      funding.status === "funded" && seedAsset
+        ? await seedAsset(keypair.secret())
+        : null;
+    return {
+      owner_wallet: ownerWallet,
+      public_key: keypair.publicKey(),
+      secret_seed: keypair.secret(),
+      funding_status: funding.status,
+      funding_detail: funding.detail,
+      seeded_assets: seededAsset ? [seededAsset] : [],
+    };
   }
 
   create(input: {
@@ -143,6 +286,7 @@ export class InMemoryAgentService {
 
     this.agents.set(record.id, record);
     this.writeLifecycleAudit(record, "agent.created");
+    this.persistState?.();
     return this.toSummary(record);
   }
 
@@ -205,6 +349,7 @@ export class InMemoryAgentService {
     agent.updatedAt = nowIso();
     this.agents.set(agent.id, agent);
     this.writeLifecycleAudit(agent, "agent.updated");
+    this.persistState?.();
     return this.toSummary(agent);
   }
 
@@ -219,6 +364,7 @@ export class InMemoryAgentService {
     agent.updatedAt = agent.pausedAt;
     this.agents.set(agent.id, agent);
     this.writeLifecycleAudit(agent, "agent.paused");
+    this.persistState?.();
     return this.toSummary(agent);
   }
 
@@ -234,6 +380,7 @@ export class InMemoryAgentService {
     agent.updatedAt = agent.activatedAt;
     this.agents.set(agent.id, agent);
     this.writeLifecycleAudit(agent, "agent.activated");
+    this.persistState?.();
     return this.toSummary(agent);
   }
 
@@ -322,6 +469,11 @@ export class InMemoryAgentService {
     permissions: AgentPermissions;
     risk_limits: AgentRiskLimits;
     provider_reference_status: "configured" | "missing";
+    activity: Array<{
+      event_type: string;
+      created_at: string;
+      payload: Record<string, unknown>;
+    }>;
   } {
     const agent = this.requireOwnedAgent(agentId, ownerWallet);
     return this.buildAnalytics(agent);
@@ -369,6 +521,16 @@ export class InMemoryAgentService {
       permissions: agent.permissions,
       risk_limits: agent.riskLimits,
       provider_reference_status: providerReferenceStatus,
+      activity: this.auditLog
+        .all()
+        .filter((entry) => entry.entityType === "agent" && entry.entityId === agent.id)
+        .slice(-10)
+        .reverse()
+        .map((entry) => ({
+          event_type: entry.eventType,
+          created_at: entry.createdAt,
+          payload: entry.payload,
+        })),
     };
   }
 
@@ -394,6 +556,19 @@ export class InMemoryAgentService {
           agent_id: agent.id,
         });
       }
+    }
+    const issues = this.validateDraft({
+      providerKind: agent.providerKind,
+      providerReference: "__configured__",
+      strategy: agent.strategy,
+      permissions: agent.permissions,
+      riskLimits: agent.riskLimits,
+    }).filter((issue) => issue.field !== "provider_reference");
+    if (issues.some((issue) => issue.severity === "error")) {
+      throw new AppError("agent_configuration_invalid", "Agent configuration is not valid for activation", 400, {
+        agent_id: agent.id,
+        issues,
+      });
     }
   }
 

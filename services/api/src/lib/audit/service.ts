@@ -14,6 +14,11 @@ export interface AuditLogEntry {
 
 export class InMemoryAuditLogService {
   private readonly entries: AuditLogEntry[] = [];
+  private persistState?: () => void;
+
+  setPersistenceHandler(handler: () => void): void {
+    this.persistState = handler;
+  }
 
   write(entry: Omit<AuditLogEntry, "id" | "createdAt">): AuditLogEntry {
     const record: AuditLogEntry = {
@@ -22,6 +27,7 @@ export class InMemoryAuditLogService {
       createdAt: new Date().toISOString(),
     };
     this.entries.push(record);
+    this.persistState?.();
     return record;
   }
 
@@ -31,5 +37,9 @@ export class InMemoryAuditLogService {
 
   all(): AuditLogEntry[] {
     return [...this.entries];
+  }
+
+  load(entries: AuditLogEntry[]): void {
+    this.entries.splice(0, this.entries.length, ...entries);
   }
 }

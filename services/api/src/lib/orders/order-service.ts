@@ -45,6 +45,7 @@ function parseSignature(signature: string): Buffer {
 export class InMemoryOrderService {
   private readonly orders = new Map<string, StoredOrder>();
   private readonly fills: MatchedFill[] = [];
+  private persistState?: () => void;
 
   constructor(
     private readonly markets: InMemoryMarketCatalog,
@@ -53,6 +54,10 @@ export class InMemoryOrderService {
     private readonly eventBus: RealtimeEventBus,
     private readonly agentService?: InMemoryAgentService,
   ) {}
+
+  setPersistenceHandler(handler: () => void): void {
+    this.persistState = handler;
+  }
 
   seedMarket(marketId: string): void {
     if (!this.markets.exists(marketId)) {
@@ -69,6 +74,28 @@ export class InMemoryOrderService {
         },
       ]);
     }
+  }
+
+  load(state: { orders: StoredOrder[]; fills: MatchedFill[] }): void {
+    this.orders.clear();
+    for (const order of state.orders) {
+      this.orders.set(order.id, order);
+    }
+    this.fills.splice(0, this.fills.length, ...state.fills);
+  }
+
+  counts(): { orders: number; fills: number } {
+    return {
+      orders: this.orders.size,
+      fills: this.fills.length,
+    };
+  }
+
+  snapshot(): { orders: StoredOrder[]; fills: MatchedFill[] } {
+    return {
+      orders: [...this.orders.values()],
+      fills: [...this.fills],
+    };
   }
 
   async submit(input: OrderSubmissionInput): Promise<OrderSubmissionResult> {
@@ -174,6 +201,7 @@ export class InMemoryOrderService {
         status: stored.status,
       });
     }
+    this.persistState?.();
     return { order: this.orders.get(stored.id) ?? stored, fills };
   }
 
@@ -390,6 +418,7 @@ export class InMemoryOrderService {
           price: fill.price,
         });
       }
+      this.persistState?.();
     }
 
     if (incoming.remainingShares === incoming.originalShares) {

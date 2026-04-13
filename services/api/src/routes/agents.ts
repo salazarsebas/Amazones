@@ -6,6 +6,8 @@ import type { AuthenticatedVariables } from "../lib/auth/middleware";
 import { verifyAccessToken } from "../lib/auth/jwt";
 import { AppError, errorPayload } from "../lib/errors";
 import type { InMemoryAgentService } from "../lib/agents/service";
+import { seedTestnetAssetForWallet } from "../lib/stellar/assets";
+import { fundTestnetAccount } from "../lib/stellar/friendbot";
 import type { DevelopmentX402Service } from "../lib/x402/service";
 
 const permissionsSchema = z.object({
@@ -28,6 +30,14 @@ const riskLimitsSchema = z.object({
   dailyBudgetUsdc: z.number().positive().optional(),
   perMarketBudgetUsdc: z.number().positive().optional(),
   maxOpenPositions: z.number().int().positive().optional(),
+});
+
+const validateAgentSchema = z.object({
+  provider_kind: z.enum(["claude", "openai", "groq", "openai-compatible"]),
+  provider_reference: z.string().optional(),
+  strategy: strategySchema.optional(),
+  permissions: permissionsSchema.optional(),
+  risk_limits: riskLimitsSchema.optional(),
 });
 
 const createAgentSchema = z.object({
@@ -157,6 +167,57 @@ export function buildAgentsRouter(
       }
       throw error;
     }
+  });
+
+  router.post("/validate", async (c) => {
+    const body = validateAgentSchema.safeParse(await c.req.json());
+    if (!body.success) {
+      return c.json(
+        errorPayload(
+          new AppError("invalid_request", "Agent validation body is invalid", 400, {
+            issues: body.error.issues,
+          }),
+        ),
+        400,
+      );
+    }
+
+    return c.json({
+      valid: !agentService.validateDraft({
+        providerKind: body.data.provider_kind,
+        providerReference: body.data.provider_reference,
+        strategy: body.data.strategy,
+        permissions: body.data.permissions,
+        riskLimits: body.data.risk_limits,
+      }).some((issue) => issue.severity === "error"),
+      issues: agentService.validateDraft({
+        providerKind: body.data.provider_kind,
+        providerReference: body.data.provider_reference,
+        strategy: body.data.strategy,
+        permissions: body.data.permissions,
+        riskLimits: body.data.risk_limits,
+      }),
+    });
+  });
+
+  router.post("/sponsored-wallet", async (c) => {
+    let claims;
+    try {
+      claims = await authenticateOwner(c.req.header("authorization"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        return c.json(errorPayload(error), error.status as 401);
+      }
+      throw error;
+    }
+
+    const result = await agentService.createSponsoredWallet(
+      claims.wallet_address,
+      async (address) => fundTestnetAccount(config.STELLAR_FRIENDBOT_URL, address),
+      async (secretSeed) => seedTestnetAssetForWallet(config, secretSeed),
+    );
+
+    return c.json(result, result.funding_status === "funded" ? 201 : 202);
   });
 
   router.patch("/:agentId", async (c) => {

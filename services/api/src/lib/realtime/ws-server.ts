@@ -3,16 +3,19 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 
 import type { AppConfig } from "../../config";
+import type { ObservabilityService } from "../observability/service";
 import type { RealtimeEventBus } from "./event-bus";
 
 export function startRealtimeServer(
   config: AppConfig,
   eventBus: RealtimeEventBus,
+  observability?: ObservabilityService,
 ): { close: () => Promise<void> } {
   const server = createServer();
   const wss = new WebSocketServer({ server });
 
   wss.on("connection", (socket, request) => {
+    observability?.openWebsocket();
     const url = new URL(request.url ?? "/", `http://127.0.0.1:${config.WS_PORT}`);
     const channel = url.searchParams.get("channel");
 
@@ -41,7 +44,10 @@ export function startRealtimeServer(
       }
     });
 
-    socket.on("close", unsubscribe);
+    socket.on("close", () => {
+      unsubscribe();
+      observability?.closeWebsocket();
+    });
   });
 
   server.listen(config.WS_PORT);

@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { Keypair } from "stellar-sdk";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Keypair, StrKey } from "stellar-sdk";
 
 import { buildApp } from "../src/app";
 import { canonicalOrderPayload } from "../src/lib/orders/order-service";
 
+type BuiltApp = Awaited<ReturnType<typeof buildApp>>;
+
 async function getPremiumPaymentToken(
-  app: ReturnType<typeof buildApp>["app"],
+  app: BuiltApp["app"],
   path: string,
 ): Promise<string> {
   const response = await app.request(path);
@@ -14,7 +16,7 @@ async function getPremiumPaymentToken(
   return payload.error.details.payment_required.payment_token as string;
 }
 
-async function authenticate(app: ReturnType<typeof buildApp>["app"], keypair: Keypair, agentName?: string) {
+async function authenticate(app: BuiltApp["app"], keypair: Keypair, agentName?: string) {
   const challengeResponse = await app.request("/v1/auth/challenge", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -41,7 +43,7 @@ async function authenticate(app: ReturnType<typeof buildApp>["app"], keypair: Ke
 }
 
 async function submitSignedOrder(
-  app: ReturnType<typeof buildApp>["app"],
+  app: BuiltApp["app"],
   keypair: Keypair,
   accessToken: string,
   order: {
@@ -89,10 +91,54 @@ async function submitSignedOrder(
 }
 
 describe("wallet auth", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("creates and funds a testnet wallet through the auth route", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ hash: "friendbot-tx" }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      }),
+    );
+
+    const { app } = await buildApp();
+    const response = await app.request("/v1/auth/testnet-wallet", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.funding_status).toBe("funded");
+    expect(StrKey.isValidEd25519PublicKey(payload.public_key)).toBe(true);
+    expect(StrKey.isValidEd25519SecretSeed(payload.secret_seed)).toBe(true);
+  });
+
+  it("returns a usable wallet even when testnet funding is pending", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    const { app } = await buildApp();
+    const response = await app.request("/v1/auth/testnet-wallet", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(202);
+    const payload = await response.json();
+    expect(payload.funding_status).toBe("pending_manual_funding");
+    expect(payload.funding_detail).toContain("ECONNREFUSED");
+    expect(StrKey.isValidEd25519PublicKey(payload.public_key)).toBe(true);
+    expect(StrKey.isValidEd25519SecretSeed(payload.secret_seed)).toBe(true);
+  });
+
   it("issues a challenge and verifies a valid signature", async () => {
     const keypair = Keypair.random();
     process.env.JWT_SECRET = "12345678901234567890123456789012";
-    const { app } = buildApp();
+    const { app } = await buildApp();
 
     const challengeResponse = await app.request("/v1/auth/challenge", {
       method: "POST",
@@ -132,7 +178,7 @@ describe("wallet auth", () => {
   it("rejects an invalid signature", async () => {
     const keypair = Keypair.random();
     process.env.JWT_SECRET = "12345678901234567890123456789012";
-    const { app } = buildApp();
+    const { app } = await buildApp();
 
     const challengeResponse = await app.request("/v1/auth/challenge", {
       method: "POST",
@@ -165,7 +211,7 @@ describe("wallet auth", () => {
   it("accepts a valid signed order for an authenticated wallet", async () => {
     const keypair = Keypair.random();
     process.env.JWT_SECRET = "12345678901234567890123456789012";
-    const { app } = buildApp({ seedMarkets: ["market-0001"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0001"] });
 
     const challengeResponse = await app.request("/v1/auth/challenge", {
       method: "POST",
@@ -240,7 +286,7 @@ describe("wallet auth", () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const buyer = Keypair.random();
     const seller = Keypair.random();
-    const { app } = buildApp({ seedMarkets: ["market-0001"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0001"] });
 
     const buyerToken = await authenticate(app, buyer);
     const sellerToken = await authenticate(app, seller);
@@ -309,7 +355,7 @@ describe("wallet auth", () => {
   it("finalizes due resolution proposals through the worker", async () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const resolver = Keypair.random();
-    const { app, resolutionWorker } = buildApp({ seedMarkets: ["market-0002"] });
+    const { app, resolutionWorker } = await buildApp({ seedMarkets: ["market-0002"] });
 
     const challengeResponse = await app.request("/v1/auth/challenge", {
       method: "POST",
@@ -366,7 +412,7 @@ describe("wallet auth", () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const owner = Keypair.random();
     const agentWallet = Keypair.random();
-    const { app } = buildApp();
+    const { app } = await buildApp();
     const ownerToken = await authenticate(app, owner);
 
     const createResponse = await app.request("/v1/agents", {
@@ -424,7 +470,7 @@ describe("wallet auth", () => {
 
   it("requires x402 payment for premium market metadata and returns semantic payload after payment", async () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
-    const { app } = buildApp({ seedMarkets: ["market-0100"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0100"] });
 
     const unpaid = await app.request("/v1/markets/market-0100/semantic");
     expect(unpaid.status).toBe(402);
@@ -447,7 +493,7 @@ describe("wallet auth", () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const owner = Keypair.random();
     const agentWallet = Keypair.random();
-    const { app } = buildApp();
+    const { app } = await buildApp();
     const ownerToken = await authenticate(app, owner);
 
     const createResponse = await app.request("/v1/agents", {
@@ -495,7 +541,7 @@ describe("wallet auth", () => {
 
   it("serves the LATAM election premium dataset through x402", async () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
-    const { app } = buildApp({ seedMarkets: ["market-0200"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0200"] });
 
     const token = await getPremiumPaymentToken(app, "/v1/data/latam-election-pack");
     const response = await app.request("/v1/data/latam-election-pack", {
@@ -514,7 +560,7 @@ describe("wallet auth", () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const owner = Keypair.random();
     const agentWallet = Keypair.random();
-    const { app } = buildApp({ seedMarkets: ["market-0003"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0003"] });
     const ownerToken = await authenticate(app, owner);
 
     const createResponse = await app.request("/v1/agents", {
@@ -572,7 +618,7 @@ describe("wallet auth", () => {
     process.env.JWT_SECRET = "12345678901234567890123456789012";
     const owner = Keypair.random();
     const agentWallet = Keypair.random();
-    const { app } = buildApp({ seedMarkets: ["market-0004"] });
+    const { app } = await buildApp({ seedMarkets: ["market-0004"] });
     const ownerToken = await authenticate(app, owner);
 
     const createResponse = await app.request("/v1/agents", {
@@ -621,5 +667,59 @@ describe("wallet auth", () => {
     expect(proposeResponse.status).toBe(403);
     const payload = await proposeResponse.json();
     expect(payload.error.code).toBe("agent_resolution_forbidden");
+  });
+
+  it("returns actionable validation issues for invalid agent activation config", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    const { app } = await buildApp();
+
+    const response = await app.request("/v1/agents/validate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider_kind: "openai",
+        provider_reference: "bad-token",
+        permissions: {
+          trade: true,
+        },
+        risk_limits: {
+          dailyBudgetUsdc: 0.1,
+          perMarketBudgetUsdc: 0.1,
+          maxOpenPositions: 1,
+        },
+        strategy: {
+          categories: ["crypto"],
+          regions: ["latam"],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.valid).toBe(false);
+    expect(
+      payload.issues.some((issue: { code: string }) => issue.code === "provider_reference_format_unrecognized"),
+    ).toBe(true);
+  });
+
+  it("creates a sponsored agent wallet even when funding falls back to manual mode", async () => {
+    process.env.JWT_SECRET = "12345678901234567890123456789012";
+    process.env.STELLAR_FRIENDBOT_URL = "http://127.0.0.1:1";
+    const owner = Keypair.random();
+    const { app } = await buildApp();
+    const accessToken = await authenticate(app, owner);
+
+    const response = await app.request("/v1/agents/sponsored-wallet", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    expect([201, 202]).toContain(response.status);
+    const payload = await response.json();
+    expect(payload.owner_wallet).toBe(owner.publicKey());
+    expect(payload.public_key).toMatch(/^G/);
+    expect(payload.secret_seed).toMatch(/^S/);
   });
 });

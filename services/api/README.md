@@ -16,6 +16,8 @@ Sprint 2, Sprint 4, and Sprint 5 backend foundation for Amazones.
 - `GET /v1/agents`
 - `GET /v1/agents/:agentId`
 - `POST /v1/agents`
+- `POST /v1/agents/validate`
+- `POST /v1/agents/sponsored-wallet`
 - `PATCH /v1/agents/:agentId`
 - `POST /v1/agents/:agentId/pause`
 - `POST /v1/agents/:agentId/activate`
@@ -31,12 +33,17 @@ Sprint 2, Sprint 4, and Sprint 5 backend foundation for Amazones.
 - synthetic settlement records and derived portfolio state
 - websocket gateway on `WS_PORT` with channel subscription by query string
 - in-memory resolution service and worker loop
+- durable state persistence with configurable backend:
+  - `memory` for tests
+  - repo-local JSON snapshot for local development
+  - Postgres-backed durable snapshots for staging/testnet
 - audit trail capture for accepted orders and settled fills
-- initial Postgres migration for markets, agents, orders, fills, audit logs, and auth challenges
+- Postgres migration for markets, agents, orders, fills, audit logs, auth challenges, and durable app-state snapshots
 - in-memory agent lifecycle service with encrypted provider reference handling
 - agent execution enforcement for trade budgets, status, and resolution permissions
 - development-grade x402 premium gate for paid data endpoints
 - semantic market metadata and premium dataset endpoints for external agents
+- `/healthz`, `/readyz`, and `/metrics` operational endpoints
 
 ## Auth model in this foundation
 
@@ -127,6 +134,14 @@ Worker env:
 - `RESOLUTION_WORKER_ENABLED=true`
 - `RESOLUTION_WORKER_INTERVAL_MS=5000`
 
+## Operational endpoints
+
+- `GET /healthz`
+- `GET /readyz`
+- `GET /metrics`
+
+The API now exposes counters/gauges suitable for basic Prometheus scraping and can persist state through either a local snapshot file or Postgres.
+
 ## Settlement orchestration modes
 
 Default mode:
@@ -163,6 +178,9 @@ Current lifecycle guarantees:
 - only the owner wallet can update, pause, or activate an agent
 - activation validates provider configuration, permissions, and risk limits
 - agent activity emits realtime events on `agent:{agentId}:activity`
+- `/v1/agents/validate` returns preflight issues before activation
+- `/v1/agents/sponsored-wallet` can provision a testnet agent wallet and attempt Friendbot funding
+- when `TESTNET_SEED_ASSET_ENABLED=true`, testnet wallets also receive a seeded classic asset such as `USDA`
 
 ## Premium data and x402 layer
 
@@ -202,6 +220,40 @@ Current x402 env:
 - `X402_CHALLENGE_TTL_SECONDS=300`
 - `X402_HMAC_SECRET=<32+ chars>`
 
+## Testnet `USDA` asset seeding
+
+The repo can keep using `USDC` where that is already the external pricing/payment assumption, while also issuing a repo-owned `USDA` asset on Stellar testnet for wallet bootstrap and collateral experiments.
+
+Bootstrap script:
+
+```bash
+cd services/api
+TESTNET_SEED_ASSET_TARGET_IDENTITIES=amazones-creator,amazones-agent-owner,amazones-agent-wallet \
+bun run testnet:seed-asset
+```
+
+The script will:
+
+- create or reuse issuer and distributor keys for `USDA`
+- fund both accounts with Friendbot
+- create the distributor trustline
+- float inventory from issuer to distributor
+- optionally create trustlines and send `USDA` to target testnet accounts
+- write reusable env vars into `deployments/testnet/usda.env`
+
+To auto-seed newly created testnet wallets from the API, load the generated secrets into the API env:
+
+- `TESTNET_SEED_ASSET_ENABLED=true`
+- `TESTNET_SEED_ASSET_CODE=USDA`
+- `TESTNET_SEED_ASSET_ISSUER_SECRET=<secret>`
+- `TESTNET_SEED_ASSET_DISTRIBUTOR_SECRET=<secret>`
+
+Wallet creation endpoints will then attempt to:
+
+- fund the wallet with Friendbot
+- open the `USDA` trustline
+- transfer the configured `TESTNET_SEED_ASSET_AMOUNT`
+
 ## Install
 
 ```bash
@@ -230,3 +282,16 @@ Initial schema lives in:
 - `db/migrations/0001_init.sql`
 
 The migration covers the MVP foundation tables required by backlog items `B1`, `B2`, and `B3`.
+
+## Persistence modes
+
+- `PERSISTENCE_MODE=memory`
+  Used automatically in tests.
+- `PERSISTENCE_MODE=snapshot`
+  Uses `STATE_SNAPSHOT_PATH` for repo-local durable state.
+- `PERSISTENCE_MODE=postgres`
+  Uses `DATABASE_URL` and persists:
+  - auth challenges
+  - durable app-state snapshots used to recover markets, agents, orders, fills, resolutions, and audit entries on restart
+
+When `DATABASE_URL` is set and `PERSISTENCE_MODE` is omitted, the service now defaults to `postgres`.

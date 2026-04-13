@@ -2,7 +2,9 @@ import { buildApp } from "./app";
 import { serve } from "@hono/node-server";
 import { startRealtimeServer } from "./lib/realtime/ws-server";
 
-const { app, config, eventBus, resolutionWorker } = buildApp({ seedMarkets: ["market-0001"] });
+const { app, config, eventBus, resolutionWorker, observability } = await buildApp({
+  seedMarkets: ["market-0001"],
+});
 
 serve(
   {
@@ -14,7 +16,7 @@ serve(
   },
 );
 
-startRealtimeServer(config, eventBus);
+startRealtimeServer(config, eventBus, observability);
 console.log(`Amazones realtime gateway listening on ws://localhost:${config.WS_PORT}`);
 
 if (config.RESOLUTION_WORKER_ENABLED) {

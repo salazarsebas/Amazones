@@ -27,6 +27,11 @@ export interface MarketSnapshot {
 
 export class InMemoryMarketCatalog {
   private readonly markets = new Map<string, MarketSnapshot>();
+  private persistState?: () => void;
+
+  setPersistenceHandler(handler: () => void): void {
+    this.persistState = handler;
+  }
 
   seed(markets: MarketSnapshot[]): void {
     for (const market of markets) {
@@ -45,6 +50,7 @@ export class InMemoryMarketCatalog {
         },
       });
     }
+    this.persistState?.();
   }
 
   exists(marketId: string): boolean {
@@ -59,11 +65,19 @@ export class InMemoryMarketCatalog {
     return [...this.markets.values()];
   }
 
+  load(markets: MarketSnapshot[]): void {
+    this.markets.clear();
+    for (const market of markets) {
+      this.markets.set(market.id, market);
+    }
+  }
+
   markResolving(marketId: string): void {
     const market = this.markets.get(marketId);
     if (!market) return;
     market.status = "resolving";
     this.markets.set(marketId, market);
+    this.persistState?.();
   }
 
   markResolved(marketId: string, outcome: "yes" | "no" | "invalid"): void {
@@ -72,5 +86,6 @@ export class InMemoryMarketCatalog {
     market.status = "resolved";
     market.latestOutcome = outcome;
     this.markets.set(marketId, market);
+    this.persistState?.();
   }
 }

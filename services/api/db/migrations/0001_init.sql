@@ -13,6 +13,16 @@ create table if not exists auth_challenges (
 create index if not exists auth_challenges_wallet_idx
     on auth_challenges (wallet_address, expires_at desc);
 
+create table if not exists app_state_snapshots (
+    id bigint generated always as identity primary key,
+    snapshot_version integer not null,
+    saved_at timestamptz not null default now(),
+    snapshot jsonb not null
+);
+
+create index if not exists app_state_snapshots_saved_idx
+    on app_state_snapshots (saved_at desc, id desc);
+
 create table if not exists markets (
     id text primary key,
     contract_market_id text unique,

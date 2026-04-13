@@ -7,6 +7,9 @@ import { AppError } from "../errors";
 import type { AppConfig } from "../../config";
 import type { ChallengeStore } from "./challenge-store";
 import type { AccessTokenClaims, AuthChallengeRecord } from "./types";
+import type { TestnetSeededAssetResult } from "../stellar/assets";
+import { seedTestnetAssetForWallet } from "../stellar/assets";
+import { fundTestnetAccount } from "../stellar/friendbot";
 
 function toUint8Array(input: string): Uint8Array {
   return new TextEncoder().encode(input);
@@ -25,6 +28,14 @@ function assertWalletAddress(walletAddress: string): void {
     throw new AppError("invalid_wallet_address", "Wallet address is not a valid Stellar public key");
   }
 }
+
+type TestnetWalletFundingResult = {
+  publicKey: string;
+  secretSeed: string;
+  fundingStatus: "funded" | "pending_manual_funding";
+  fundingDetail?: string;
+  seededAssets: TestnetSeededAssetResult[];
+};
 
 export class WalletAuthService {
   constructor(
@@ -65,6 +76,24 @@ export class WalletAuthService {
 
     await this.store.create(record);
     return record;
+  }
+
+  async createTestnetWallet(): Promise<TestnetWalletFundingResult> {
+    const keypair = Keypair.random();
+    const publicKey = keypair.publicKey();
+    const funding = await fundTestnetAccount(this.config.STELLAR_FRIENDBOT_URL, publicKey);
+    const seededAsset =
+      funding.status === "funded"
+        ? await seedTestnetAssetForWallet(this.config, keypair.secret())
+        : null;
+
+    return {
+      publicKey,
+      secretSeed: keypair.secret(),
+      fundingStatus: funding.status,
+      fundingDetail: funding.detail,
+      seededAssets: seededAsset ? [seededAsset] : [],
+    };
   }
 
   async verifyChallenge(input: {

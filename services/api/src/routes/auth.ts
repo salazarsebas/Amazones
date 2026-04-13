@@ -18,6 +18,21 @@ const authVerifyRequestSchema = z.object({
 export function buildAuthRouter(walletAuth: WalletAuthService): Hono {
   const router = new Hono();
 
+  router.post("/testnet-wallet", async (c) => {
+    const wallet = await walletAuth.createTestnetWallet();
+
+    return c.json(
+      {
+        public_key: wallet.publicKey,
+        secret_seed: wallet.secretSeed,
+        funding_status: wallet.fundingStatus,
+        funding_detail: wallet.fundingDetail,
+        seeded_assets: wallet.seededAssets,
+      },
+      wallet.fundingStatus === "funded" ? 201 : 202,
+    );
+  });
+
   router.post("/challenge", async (c) => {
     const body = authChallengeRequestSchema.safeParse(await c.req.json());
     if (!body.success) {
