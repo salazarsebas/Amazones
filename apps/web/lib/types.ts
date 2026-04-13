@@ -82,3 +82,46 @@ export type Agent = {
   activated_at?: string;
   paused_at?: string;
 };
+
+export type AgentActivity = {
+  event_type: string;
+  created_at: string;
+  payload: Record<string, unknown>;
+};
+
+export type AgentAnalytics = {
+  agent_id: string;
+  status: AgentStatus;
+  permissions: AgentPermissions;
+  risk_limits: AgentRiskLimits;
+  provider_reference_status: "configured" | "missing";
+  activity: AgentActivity[];
+};
+
+export type AgentValidationIssue = {
+  field: string;
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+};
+
+export type AgentValidationResult = {
+  valid: boolean;
+  issues: AgentValidationIssue[];
+};
+
+export type SponsoredWallet = {
+  owner_wallet: string;
+  public_key: string;
+  secret_seed: string;
+  funding_status: "funded" | "pending_manual_funding";
+  funding_detail?: string;
+  seeded_assets?: Array<{
+    asset_code: string;
+    asset_issuer: string;
+    asset_contract_id: string;
+    amount: string;
+    status: "seeded" | "skipped" | "pending_manual_distribution";
+    detail?: string;
+  }>;
+};

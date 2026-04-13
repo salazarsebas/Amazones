@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 
 import { useWallet } from "@/components/wallet-provider";
 import { API_BASE_URL, parseApiResponse } from "@/lib/api";
-import type { Agent } from "@/lib/types";
+import type { Agent, AgentAnalytics } from "@/lib/types";
 
 export function AgentDetailClient({ agentId }: { agentId: string }) {
   const { ensureAuthenticated, isAuthenticated, isReady } = useWallet();
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [analytics, setAnalytics] = useState<AgentAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
@@ -31,9 +32,17 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
           },
           cache: "no-store",
         });
+        const analyticsResponse = await fetch(`${API_BASE_URL}/v1/agents/${agentId}/analytics`, {
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+          },
+          cache: "no-store",
+        });
         const payload = await parseApiResponse<Agent>(response);
+        const analyticsPayload = await parseApiResponse<AgentAnalytics>(analyticsResponse);
         if (!cancelled) {
           setAgent(payload);
+          setAnalytics(analyticsPayload);
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -65,6 +74,13 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
       });
       const payload = await parseApiResponse<Agent>(response);
       setAgent(payload);
+      const refreshedAccessToken = await ensureAuthenticated();
+      const analyticsResponse = await fetch(`${API_BASE_URL}/v1/agents/${agentId}/analytics`, {
+        headers: {
+          authorization: `Bearer ${refreshedAccessToken}`,
+        },
+      });
+      setAnalytics(await parseApiResponse<AgentAnalytics>(analyticsResponse));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to update agent.");
     } finally {
@@ -137,6 +153,10 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
               <dt>Created</dt>
               <dd>{new Date(agent.created_at).toLocaleString()}</dd>
             </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{new Date(agent.updated_at).toLocaleString()}</dd>
+            </div>
           </dl>
         </section>
 
@@ -202,6 +222,30 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
               <dd>{agent.strategy.aggressiveness ?? "balanced"}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="detail-panel">
+          <span className="eyebrow">Operational state</span>
+          <h2>Analytics and recent activity</h2>
+          <p>
+            Provider status: <strong>{analytics?.provider_reference_status ?? agent.provider_reference_status}</strong>
+          </p>
+          <p>
+            Current execution state: <strong>{analytics?.status ?? agent.status}</strong>
+          </p>
+          {analytics?.activity?.length ? (
+            <div className="section-stack">
+              {analytics.activity.map((entry) => (
+                <article className="success-panel neutral" key={`${entry.event_type}-${entry.created_at}`}>
+                  <strong>{entry.event_type}</strong>
+                  <p>{new Date(entry.created_at).toLocaleString()}</p>
+                  <p>{JSON.stringify(entry.payload)}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p>No recent activity has been recorded for this agent yet.</p>
+          )}
         </section>
       </div>
     </div>

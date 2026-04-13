@@ -5,7 +5,16 @@ import { useRouter } from "next/navigation";
 
 import { useWallet } from "@/components/wallet-provider";
 import { API_BASE_URL, parseApiResponse } from "@/lib/api";
-import type { Agent, AgentPermissions, AgentRiskLimits, AgentStrategy, AgentType, ProviderKind } from "@/lib/types";
+import type {
+  Agent,
+  AgentPermissions,
+  AgentRiskLimits,
+  AgentStrategy,
+  AgentType,
+  AgentValidationResult,
+  ProviderKind,
+  SponsoredWallet,
+} from "@/lib/types";
 
 const defaultPermissions: AgentPermissions = {
   trade: true,
@@ -44,6 +53,8 @@ export function AgentWizard() {
   const [riskLimits, setRiskLimits] = useState<AgentRiskLimits>(defaultRiskLimits);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<AgentValidationResult | null>(null);
+  const [sponsoredWallet, setSponsoredWallet] = useState<SponsoredWallet | null>(null);
 
   const summary = useMemo(
     () => [
@@ -56,6 +67,51 @@ export function AgentWizard() {
     ],
     [name, permissions, riskLimits.dailyBudgetUsdc, strategy.categories],
   );
+
+  async function runValidation(): Promise<AgentValidationResult> {
+    const response = await fetch(`${API_BASE_URL}/v1/agents/validate`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        provider_kind: providerKind,
+        provider_reference: providerReference,
+        strategy,
+        permissions,
+        risk_limits: riskLimits,
+      }),
+    });
+    const payload = await parseApiResponse<AgentValidationResult>(response);
+    setValidation(payload);
+    return payload;
+  }
+
+  async function requestSponsoredWallet() {
+    if (!isAuthenticated || !walletAddress) {
+      setError("Connect a wallet before requesting a sponsored agent wallet.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const accessToken = await ensureAuthenticated();
+      const response = await fetch(`${API_BASE_URL}/v1/agents/sponsored-wallet`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const wallet = await parseApiResponse<SponsoredWallet>(response);
+      setSponsoredWallet(wallet);
+      setAgentWallet(wallet.public_key);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to request sponsored wallet.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   function updatePermission<K extends keyof AgentPermissions>(key: K, value: boolean) {
     setPermissions((current) => ({ ...current, [key]: value }));
@@ -79,6 +135,15 @@ export function AgentWizard() {
     setError(null);
 
     try {
+      if (status === "active") {
+        const nextValidation = await runValidation();
+        if (!nextValidation.valid) {
+          setError("Fix the activation issues before creating the agent as active.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const accessToken = await ensureAuthenticated();
       const response = await fetch(`${API_BASE_URL}/v1/agents`, {
         method: "POST",
@@ -150,6 +215,27 @@ export function AgentWizard() {
                 value={agentWallet}
               />
             </label>
+            <button
+              className="button button-secondary"
+              disabled={isSubmitting}
+              onClick={() => void requestSponsoredWallet()}
+              type="button"
+            >
+              Request sponsored testnet wallet
+            </button>
+            {sponsoredWallet ? (
+              <div className="success-panel neutral">
+                <p>Sponsored wallet: {sponsoredWallet.public_key}</p>
+                <p>Funding status: {sponsoredWallet.funding_status}</p>
+                <p>Secret seed: {sponsoredWallet.secret_seed}</p>
+                {sponsoredWallet.funding_detail ? <p>{sponsoredWallet.funding_detail}</p> : null}
+                {sponsoredWallet.seeded_assets?.map((asset) => (
+                  <p key={`${asset.asset_code}-${asset.asset_issuer}`}>
+                    {asset.asset_code}: {asset.amount} ({asset.status})
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -295,6 +381,38 @@ export function AgentWizard() {
             </div>
 
             {error ? <p className="inline-error">{error}</p> : null}
+            {validation ? (
+              <div className="section-stack">
+                <button
+                  className="button button-secondary"
+                  disabled={isSubmitting}
+                  onClick={() => void runValidation()}
+                  type="button"
+                >
+                  Re-run activation checks
+                </button>
+                {validation.issues.length > 0 ? (
+                  <div className="section-stack">
+                    {validation.issues.map((issue) => (
+                      <p className={issue.severity === "error" ? "inline-error" : "eyebrow"} key={`${issue.field}-${issue.code}`}>
+                        {issue.severity.toUpperCase()}: {issue.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p>No activation issues detected.</p>
+                )}
+              </div>
+            ) : (
+              <button
+                className="button button-secondary"
+                disabled={isSubmitting}
+                onClick={() => void runValidation()}
+                type="button"
+              >
+                Run activation checks
+              </button>
+            )}
 
             <div className="hero-actions">
               <button

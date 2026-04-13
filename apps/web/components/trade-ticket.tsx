@@ -200,6 +200,11 @@ export function TradeTicket({
           <span className="eyebrow">Order accepted</span>
           <p>Order ID: {success.order_id}</p>
           <p>Fills settled: {success.fills.length}</p>
+          {success.fills.map((fill) => (
+            <p key={fill.fill_id}>
+              {fill.fill_id}: {fill.shares} @ {fill.price} [{fill.settlement_status}]
+            </p>
+          ))}
         </div>
       ) : null}
 

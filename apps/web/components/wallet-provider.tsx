@@ -11,7 +11,6 @@ import {
 
 import { API_BASE_URL, parseApiResponse } from "@/lib/api";
 import {
-  createRandomSecretSeed,
   isValidSecretSeed,
   publicKeyFromSecret,
   signUtf8,
@@ -34,6 +33,28 @@ type AuthVerifyResponse = {
   tier: string;
 };
 
+type TestnetWalletResponse = {
+  public_key: string;
+  secret_seed: string;
+  funding_status: "funded" | "pending_manual_funding";
+  funding_detail?: string;
+  seeded_assets?: Array<{
+    asset_code: string;
+    asset_issuer: string;
+    asset_contract_id: string;
+    amount: string;
+    status: "seeded" | "skipped" | "pending_manual_distribution";
+    detail?: string;
+  }>;
+};
+
+type CreatedWalletResult = {
+  walletAddress: string;
+  fundingStatus: "funded" | "pending_manual_funding";
+  fundingDetail?: string;
+  secretSeed: string;
+};
+
 type WalletContextValue = {
   walletAddress: string | null;
   accessToken: string | null;
@@ -41,7 +62,7 @@ type WalletContextValue = {
   isAuthenticated: boolean;
   isReady: boolean;
   connectWithSecret: (secretKey: string) => Promise<void>;
-  createTestnetWallet: () => Promise<void>;
+  createTestnetWallet: () => Promise<CreatedWalletResult>;
   disconnect: () => void;
   ensureAuthenticated: () => Promise<string>;
   signMessage: (message: string) => Promise<string>;
@@ -118,8 +139,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }
 
   async function createTestnetWallet() {
-    const secretKey = createRandomSecretSeed();
-    await authenticate(secretKey);
+    const response = await fetch(`${API_BASE_URL}/v1/auth/testnet-wallet`, {
+      method: "POST",
+    });
+    const createdWallet = await parseApiResponse<TestnetWalletResponse>(response);
+    await authenticate(assertSecretKey(createdWallet.secret_seed));
+    return {
+      walletAddress: createdWallet.public_key,
+      fundingStatus: createdWallet.funding_status,
+      fundingDetail: createdWallet.funding_detail,
+      secretSeed: createdWallet.secret_seed,
+    };
   }
 
   function disconnect() {
