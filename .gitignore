@@ -21,5 +21,7 @@ services/api/.env.local
 services/api/coverage/
 apps/web/node_modules/
 apps/web/.next/
+apps/web/.next.corrupt-*/
 apps/web/.env
 apps/web/.env.local
+services/api/var/
